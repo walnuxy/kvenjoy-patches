@@ -17,8 +17,11 @@ public final class FontPatcher {
         try { return SecureRandom.getInstance("Windows-PRNG"); }
         catch (NoSuchAlgorithmException e) { return new SecureRandom(); }
     }
-    static final String[] NAMES = {ENTRY, ENTRY.replace("r.class", "r$1.class"),
+    static final String[] FONTS = {ENTRY, ENTRY.replace("r.class", "r$1.class"),
         ENTRY.replace("r.class", "r$2.class"), ENTRY.replace("r.class", "r$3.class")};
+    static final String COMMON = "com/kenjoy/kenjoycnc/L.class";
+    static final String PATH_CHOOSER = "com/kenjoy/kenjoycnc/PathFileChooser.class";
+    static final String[] NAMES = {FONTS[0], FONTS[1], FONTS[2], FONTS[3], COMMON, PATH_CHOOSER};
     final Path dir;
     final Properties expected = new Properties();
     final Map<String,byte[]> replacements = new LinkedHashMap<String,byte[]>();
@@ -90,16 +93,26 @@ public final class FontPatcher {
                 "软件版本不兼容：" + name + "；未修改文件");
         }
         String current = sha(decrypt(decrypt(found.entries.get(ENTRY), found.machine), found.pkg));
+        String common = sha(decrypt(decrypt(found.entries.get(COMMON), found.machine), found.pkg));
+        boolean pathsInstalled = common.equals(expected.getProperty("payload." + COMMON));
+        if (pathsInstalled) {
+            byte[] helper = found.entries.get(PATH_CHOOSER);
+            require(helper != null && sha(decrypt(decrypt(helper, found.machine), found.pkg))
+                .equals(expected.getProperty("payload." + PATH_CHOOSER)), "路径补丁不完整；未修改文件");
+        } else {
+            require(common.equals(expected.getProperty("original.common")) && !found.entries.containsKey(PATH_CHOOSER),
+                "公共文件选择器版本未知；未修改文件");
+        }
         if (current.equals(expected.getProperty("patched.r"))) {
-            for (String name : NAMES) {
+            for (String name : FONTS) {
                 byte[] encrypted = found.entries.get(name);
                 require(encrypted != null &&
                     Arrays.equals(decrypt(decrypt(encrypted, found.machine), found.pkg), replacements.get(name)),
                     "检测到不完整或被改动的字体补丁；未修改文件");
             }
-            found.installed = true;
+            found.installed = pathsInstalled;
         } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))) {
-            for (String name : NAMES) {
+            for (String name : FONTS) {
                 byte[] encrypted = found.entries.get(name);
                 require(encrypted != null && sha(decrypt(decrypt(encrypted, found.machine), found.pkg))
                     .equals(expected.getProperty("legacy-ui." + name)),
@@ -109,7 +122,7 @@ public final class FontPatcher {
         } else {
             require(Arrays.asList(expected.getProperty("compatible.r", "").split(",")).contains(current),
                 "字体对话框版本未知，不能覆盖；未修改文件");
-            for (int i = 1; i < NAMES.length; i++)
+            for (int i = 1; i < FONTS.length; i++)
                 require(!found.entries.containsKey(NAMES[i]),
                     "检测到未知的字体内部类，不能安全覆盖；未修改文件");
             found.installed = false;
@@ -151,7 +164,7 @@ public final class FontPatcher {
     }
     String check() throws Exception {
         PackageData data=inspect();
-        return data.installed ? "已经安装本版字体补丁。" : "版本兼容，可以安装。只替换字体界面的四个类。";
+        return data.installed ? "已经安装本版字体与路径补丁。" : "版本兼容，可以安装字体与文件路径增强补丁。";
     }
     String apply() throws Exception {
         PackageData data=inspect();
@@ -180,7 +193,7 @@ public final class FontPatcher {
         replace(dir.resolve("core"),result);
         require(sha(Files.readAllBytes(dir.resolve("core"))).equals(after),"安装后校验失败，请用回滚恢复");
         receipt.setProperty("status","installed");saveReceipt(state,receipt);
-        return "安装成功。请重新打开奎享雕刻，测试滚轮和双击。\n备份位置："+backup;
+        return "安装成功。请重新打开奎享雕刻，测试字体与载入文件路径输入。\n备份位置："+backup;
     }
     String rollback() throws Exception {
         Path state=dir.resolve(STATE), path=state.resolve("receipt.properties");
@@ -269,7 +282,7 @@ public final class FontPatcher {
                         + "\n如以前使用本工具安装过，仍可通过“回滚”恢复。";
                 }
                 Object[] options={"安装补丁","回滚","只检查","取消"};
-                int choice=JOptionPane.showOptionDialog(null,"目标目录："+tool.dir+"\n"+state+"\n\n安装或回滚前，请退出奎享雕刻。\n仅更新字体界面，保留本机授权和其他文件。","字体补丁",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[2]);
+                int choice=JOptionPane.showOptionDialog(null,"目标目录："+tool.dir+"\n"+state+"\n\n安装或回滚前，请退出奎享雕刻。\n更新字体界面与公共文件路径输入，保留本机授权。","字体补丁",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[2]);
                 if(choice<0||choice==3)return;
                 String result=choice==0?tool.apply():choice==1?tool.rollback():state;
                 JOptionPane.showMessageDialog(null,result,"字体补丁",JOptionPane.INFORMATION_MESSAGE);

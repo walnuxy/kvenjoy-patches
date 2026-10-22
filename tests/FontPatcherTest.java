@@ -84,7 +84,7 @@ public final class FontPatcherTest {
         Path originalJar=Paths.get(args[0]), payloadJar=Paths.get(args[1]), root=Paths.get(args[2]);
         Path legacyClass=Paths.get(args[3]);
         Map<String,byte[]> original=readJar(originalJar),payload=readJar(payloadJar);
-        yes(payload.size()==4,"exactly four payload classes");
+        yes(payload.size()==6,"exactly six font/path payload classes");
         Path target=fixture(root.resolve("valid"),original);
         byte[] before=Files.readAllBytes(target.resolve("core"));
         byte[] license=Files.readAllBytes(target.resolve("licene"));
@@ -99,13 +99,13 @@ public final class FontPatcherTest {
         yes(!Arrays.equals(before,installed),"core changed after apply");
         yes(patcher.inspect().installed,"installed result recognized");
         Map<String,byte[]> afterEntries=FontPatcher.unzip(FontPatcher.decrypt(installed,MACHINE));
-        yes(afterEntries.size()==beforeEntries.size()+3,"only new inner class entries");
+        yes(afterEntries.size()==beforeEntries.size()+4,"only three font inner classes and one path helper added");
         boolean untouched=true;
         for(String name:beforeEntries.keySet()) {
-            if (!name.equals(FontPatcher.ENTRY) &&
+            if (!name.equals(FontPatcher.ENTRY) && !name.equals(FontPatcher.COMMON) &&
                 !Arrays.equals(beforeEntries.get(name),afterEntries.get(name))) untouched=false;
         }
-        yes(untouched,"all 514 non-font original core entries remain byte-identical");
+        yes(untouched,"all 513 unrelated original core entries remain byte-identical");
         for(String name:FontPatcher.NAMES)
             yes(Arrays.equals(FontPatcher.decrypt(FontPatcher.decrypt(afterEntries.get(name),MACHINE),PACKAGE),
                 payload.get(name)), "installed payload " + name);
@@ -193,9 +193,9 @@ public final class FontPatcherTest {
         FontPatcher uiUpgrade=new FontPatcher(oldUiDir);
         yes(!uiUpgrade.inspect().installed,"complete font UI v1 accepted for upgrade");
         uiUpgrade.apply();
-        yes(uiUpgrade.inspect().installed,"font UI v1 upgrades to reopen fix");
+        yes(uiUpgrade.inspect().installed,"font UI v1 upgrades to combined font/path patch");
         uiUpgrade.apply();
-        yes(uiUpgrade.inspect().installed,"repeat v2 install remains a no-op");
+        yes(uiUpgrade.inspect().installed,"repeat current-version install remains a no-op");
         uiUpgrade.rollback();
         yes(Arrays.equals(oldUiCore,Files.readAllBytes(oldUiDir.resolve("core"))),"font UI v1 restored byte-for-byte");
         priorUi.remove(FontPatcher.NAMES[1]);
@@ -205,6 +205,31 @@ public final class FontPatcherTest {
               "partial font UI v1 refused for upgrade");
         yes(Arrays.equals(partialBefore,Files.readAllBytes(partialUi.resolve("core")))
                 && !Files.exists(partialUi.resolve(".font-ui-patch")),"partial v1 refusal causes no writes");
+        Map<String,byte[]> v2=new LinkedHashMap<String,byte[]>(original);
+        try (ZipFile release = new ZipFile(args[5])) {
+            try (ZipInputStream jar = new ZipInputStream(release.getInputStream(release.getEntry("font-patcher.jar")))) {
+                ZipEntry entry;
+                while ((entry=jar.getNextEntry())!=null) {
+                    if (!entry.getName().startsWith("payload/")) continue;
+                    ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;
+                    while((n=jar.read(buffer))!=-1)out.write(buffer,0,n);
+                    v2.put(entry.getName().substring(8),out.toByteArray());
+                }
+            }
+        }
+        Path v2Dir=fixture(root.resolve("font-ui-v2"),v2);byte[] v2Before=Files.readAllBytes(v2Dir.resolve("core"));
+        FontPatcher v2Upgrade=new FontPatcher(v2Dir);
+        yes(!v2Upgrade.inspect().installed,"font UI v2 needs path enhancement");
+        v2Upgrade.apply();yes(v2Upgrade.inspect().installed,"font UI v2 upgrades to combined font/path v3");
+        v2Upgrade.rollback();yes(Arrays.equals(v2Before,Files.readAllBytes(v2Dir.resolve("core"))),"v3 rollback restores exact v2 core");
+        Map<String,byte[]> missingPath=new LinkedHashMap<String,byte[]>(original);missingPath.putAll(payload);
+        missingPath.remove(FontPatcher.PATH_CHOOSER);
+        Path brokenPath=fixture(root.resolve("missing-path-helper"),missingPath);
+        fails(new Action(){public void run() throws Exception{new FontPatcher(brokenPath).apply();}},"missing path helper rejected");
+        Map<String,byte[]> unknownCommon=new LinkedHashMap<String,byte[]>(original);
+        unknownCommon.put(FontPatcher.COMMON,replaceOne(original.get(FontPatcher.COMMON)));
+        Path unknownCommonDir=fixture(root.resolve("unknown-common"),unknownCommon);
+        fails(new Action(){public void run() throws Exception{new FontPatcher(unknownCommonDir).apply();}},"modified common chooser rejected");
         System.out.println("Synthetic regression checks passed: " + checks);
     }
 }
