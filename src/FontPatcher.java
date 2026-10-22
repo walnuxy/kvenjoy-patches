@@ -120,7 +120,7 @@ public final class FontPatcher {
                 byte[] encrypted = found.entries.get(name);
                 require(encrypted != null && sha(decrypt(decrypt(encrypted, found.machine), found.pkg))
                     .equals(expected.getProperty("legacy-ui-v4." + name)),
-                    "旧版v4补丁不完整或已被改动；未修改文件");
+                    "旧版0.004补丁不完整或已被改动；未修改文件");
             }
             found.installed = false;
         } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))

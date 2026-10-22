@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "kvenjoy-font-patcher-20261022-v5"
+VERSION = "kvenjoy-font-patcher-20261022-0.005"
 
 
 def main():
