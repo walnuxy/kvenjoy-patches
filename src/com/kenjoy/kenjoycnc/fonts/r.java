@@ -73,6 +73,7 @@ ChangeListener {
     /* 新增：右侧整列与滚动容器，仅本类使用。 */
     private JPanel selectedPanel;
     private JScrollPane selectedScroll;
+    private JScrollPane priorityScroll;
     private FontFolderFilter folderFilter;
 
     public r() {
@@ -87,34 +88,38 @@ ChangeListener {
         JPanel jPanel = new JPanel();
         this.getContentPane().add(jPanel);
         jPanel.setLayout(new GridLayout(0, 2, 0, 0));
-        FlowLayout flowLayout = new com.kenjoy.kenjoycnc.h.a();
-        flowLayout.setAlignment(FlowLayout.CENTER);
-        this.c = new JPanel(flowLayout);
+        this.c = new JPanel(new BorderLayout(0, 5));
         jPanel.add(this.c);
+        JPanel details = new JPanel(new BorderLayout(0, 5));
+        this.c.add(details, BorderLayout.CENTER);
         this.q = new JPanel(new com.kenjoy.kenjoycnc.h.a());
         this.q.setBorder(new TitledBorder(UIManager.getBorder("TitledBorder.border"), "\u5b57\u4f53\u4f18\u5148\u7ea7", 4, 2, null, new Color(0, 0, 0)));
-        this.c.add(this.q);
+        this.priorityScroll = new JScrollPane(this.q);
+        this.priorityScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        this.priorityScroll.getVerticalScrollBar().setUnitIncrement(18);
+        details.add(this.priorityScroll, BorderLayout.CENTER);
+        JPanel notes = new JPanel(new com.kenjoy.kenjoycnc.h.a());
+        details.add(notes, BorderLayout.SOUTH);
         this.s = new JTextPane();
         this.s.setForeground(Color.RED);
-        this.s.setText("\u4f18\u5148\u7ea7\u8bf4\u660e\uff1a\u5b57\u4f53\u968f\u673a\u51fa\u73b0\u51e0\u7387\u4e3a \u503c/(\u503c\u7684\u603b\u548c\uff09");
+        this.s.setText("优先级：出现概率 = 当前值 / 所有值之和。");
         this.s.setEditable(false);
-        this.c.add(this.s);
+        notes.add(this.s);
         this.i = new JTextPane();
-        this.i.setText("\u63d0\u793a\uff1a\u5b57\u4f53\u53ef\u4ee5\u591a\u9009\n"
-                + "\u5f53\u9009\u62e9\u591a\u4e2a\u5b57\u4f53\u7684\u65f6\u5019\u4f1a\u968f\u673a\u4ece\u5b57\u4f53\u4e2d\u9009\u62e9\u5b57\u578b\n"
-                + "\u53cc\u51fb\u5de6\u8fb9\u7684\u5b57\u4f53\u52a0\u5165\u53f3\u8fb9\uff0c\u53cc\u51fb\u53f3\u8fb9\u7684\u6761\u76ee\u79fb\u9664\n"
-                + "\u5f53\u786e\u5b9a\u597d\u540e\u70b9\u201c\u786e\u5b9a\u9009\u62e9\u201d");
-        this.c.add(this.i);
+        this.i.setText("双击左侧加入，右侧移除。\n可多选；完成后点“确定选择”。");
+        notes.add(this.i);
+        JPanel actions = new JPanel(new GridLayout(3, 1, 0, 5));
+        this.c.add(actions, BorderLayout.SOUTH);
         this.d = new JButton("\u2192");
         this.d.addActionListener(this);
-        this.c.add(this.d);
+        actions.add(this.d);
         this.e = new JButton("\u2190");
         this.e.addActionListener(this);
-        this.c.add(this.e);
+        actions.add(this.e);
         this.f = new JButton("\u786e\u5b9a\u9009\u62e9");
         this.f.setEnabled(false);
         this.f.addActionListener(this);
-        this.c.add(this.f);
+        actions.add(this.f);
 
         this.selectedPanel = new JPanel(new BorderLayout(0, 0));
         jPanel.add(this.selectedPanel);

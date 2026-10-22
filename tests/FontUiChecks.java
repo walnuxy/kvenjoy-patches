@@ -217,6 +217,23 @@ public final class FontUiChecks {
                 dialog.validate();
                 rightList.validate();
                 check("40 项后优先级框=40", priorityFields.size() == 40);
+                Rectangle controls = new Rectangle(0, 0, dialog.getContentPane().getWidth(), dialog.getContentPane().getHeight());
+                check("40字体时确定按钮完整留在窗口内", controls.contains(SwingUtilities.convertRectangle(confirm.getParent(), confirm.getBounds(), dialog.getContentPane())));
+                check("40字体时两个箭头完整留在窗口内", controls.contains(SwingUtilities.convertRectangle(add.getParent(), add.getBounds(), dialog.getContentPane()))
+                    && controls.contains(SwingUtilities.convertRectangle(remove.getParent(), remove.getBounds(), dialog.getContentPane())));
+                JScrollPane priorities = (JScrollPane)get(dialog, "priorityScroll");
+                check("优先级有独立可见视口及滚动范围", priorities.getViewport().getHeight() > 30
+                    && priorities.getVerticalScrollBar().getMaximum() > priorities.getVerticalScrollBar().getVisibleAmount());
+                JScrollBar priorityBar = priorities.getVerticalScrollBar();
+                priorityBar.setValue(priorityBar.getMaximum());
+                Rectangle lastField = ((Component)priorityFields.get(39)).getBounds();
+                check("优先级可滚到最后一个输入框", priorities.getViewport().getViewRect().contains(lastField));
+                priorityBar.setValue(0);
+                dialog.setSize(1000, 500); dialog.validate();
+                Rectangle smallControls = new Rectangle(0, 0, dialog.getContentPane().getWidth(), dialog.getContentPane().getHeight());
+                check("缩短窗口后确定按钮仍完整可见", smallControls.contains(SwingUtilities.convertRectangle(confirm.getParent(), confirm.getBounds(), dialog.getContentPane())));
+                check("缩短窗口后优先级仍有可用视口", priorities.getViewport().getHeight() > 30);
+                dialog.setSize(1000, 559); dialog.validate();
                 JScrollBar bar = scroll.getVerticalScrollBar();
                 check("内容超视口出现纵向滚动条", bar.isVisible());
                 check("可滚动范围 > 0", bar.getMaximum() - bar.getVisibleAmount() > 0);
@@ -365,6 +382,14 @@ public final class FontUiChecks {
                         && ((v)right.get(6)).f.equals("mock-font-6.gfont"));
                 check("迟到的重复回调保留新优先级", priorityFields.size() == 7
                         && ((Number)((JFormattedTextField)priorityFields.get(6)).getValue()).intValue() == 7);
+                for (int i=8;i<40;i++) local.fontListModel.addElement(mock(i));
+                ((FontFolderFilter)get(dialog, "folderFilter")).refresh();
+                for (int i=7;i<40;i++) { leftList.setSelectedIndex(i); add.doClick(); }
+                ((JFormattedTextField)priorityFields.get(39)).setValue(Integer.valueOf(9));
+                FontsDialogData many = (FontsDialogData)get(dialog, "p");
+                confirm.doClick();
+                check("四十字体仍可确定并回调保存", callbackCount[0] == 40 && many.fontsName.length == 40);
+                check("四十字体保存最后一项优先级", many.chance.length == 40 && many.chance[39] == 9);
                 dialog.dispose();
             }
         });

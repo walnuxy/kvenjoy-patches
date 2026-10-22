@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "kvenjoy-font-patcher-20261022-v4"
+VERSION = "kvenjoy-font-patcher-20261022-v5"
 
 
 def main():
@@ -61,7 +61,8 @@ def main():
                             str(classes / "fixtures"), str(args.legacy_v2.resolve()),
                             str(ROOT / "dist/kvenjoy-font-patcher-20261022-v1.zip"),
                             str(ROOT / "dist/kvenjoy-font-patcher-20261022-v2.zip"),
-                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v3.zip")], check=True)
+                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v3.zip"),
+                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v4.zip")], check=True)
     print("Built", jar)
     print("Use the launcher scripts beside this JAR, or: java -jar font-patcher.jar --check <installation-folder>")
 

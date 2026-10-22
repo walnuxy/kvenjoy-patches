@@ -115,6 +115,14 @@ public final class FontPatcher {
             require(folder != null && sha(decrypt(decrypt(folder, found.machine), found.pkg))
                 .equals(expected.getProperty("payload." + FOLDER_FILTER)), "字体分类补丁不完整；未修改文件");
             found.installed = pathsInstalled;
+        } else if (current.equals(expected.getProperty("legacy-ui-v4." + ENTRY))) {
+            for (String name : NAMES) {
+                byte[] encrypted = found.entries.get(name);
+                require(encrypted != null && sha(decrypt(decrypt(encrypted, found.machine), found.pkg))
+                    .equals(expected.getProperty("legacy-ui-v4." + name)),
+                    "旧版v4补丁不完整或已被改动；未修改文件");
+            }
+            found.installed = false;
         } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))
                 || current.equals(expected.getProperty("legacy-ui-v2." + ENTRY))) {
             String prefix = current.equals(expected.getProperty("legacy-ui." + ENTRY)) ? "legacy-ui." : "legacy-ui-v2.";

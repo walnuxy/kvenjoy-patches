@@ -247,6 +247,31 @@ public final class FontPatcherTest {
         yes(!v3Upgrade.inspect().installed,"v3 is eligible for folder categories");
         v3Upgrade.apply();yes(v3Upgrade.inspect().installed,"v3 upgrades to v4 categories");
         v3Upgrade.rollback();yes(Arrays.equals(v3Before,Files.readAllBytes(v3Dir.resolve("core"))),"category upgrade rollback restores v3 exactly");
+        Map<String,byte[]> v4=new LinkedHashMap<String,byte[]>(original);
+        try (ZipFile release=new ZipFile(args[7])) {
+            try (ZipInputStream jar=new ZipInputStream(release.getInputStream(release.getEntry("font-patcher.jar")))) {
+                ZipEntry entry;
+                while((entry=jar.getNextEntry())!=null) {
+                    if(!entry.getName().startsWith("payload/"))continue;
+                    ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;
+                    while((n=jar.read(buffer))!=-1)out.write(buffer,0,n);
+                    v4.put(entry.getName().substring(8),out.toByteArray());
+                }
+            }
+        }
+        Path v4Dir=fixture(root.resolve("font-ui-v4"),v4);byte[] v4Before=Files.readAllBytes(v4Dir.resolve("core"));
+        FontPatcher v4Upgrade=new FontPatcher(v4Dir);
+        yes(!v4Upgrade.inspect().installed,"v4 is eligible for fixed confirmation layout");
+        v4Upgrade.apply();yes(v4Upgrade.inspect().installed,"v4 upgrades to v5 fixed controls");
+        v4Upgrade.rollback();yes(Arrays.equals(v4Before,Files.readAllBytes(v4Dir.resolve("core"))),"layout upgrade rollback restores v4 exactly");
+        Map<String,byte[]> brokenOldFolder=new LinkedHashMap<String,byte[]>(v4);
+        brokenOldFolder.remove(FontPatcher.FOLDER_FILTER);
+        Path brokenOldDir=fixture(root.resolve("broken-old-v4"),brokenOldFolder);
+        fails(new Action(){public void run() throws Exception{new FontPatcher(brokenOldDir).apply();}},"incomplete v4 upgrade rejected");
+        Map<String,byte[]> changedOldFolder=new LinkedHashMap<String,byte[]>(v4);
+        changedOldFolder.put(FontPatcher.FOLDER_FILTER,replaceOne(changedOldFolder.get(FontPatcher.FOLDER_FILTER)));
+        Path changedOldDir=fixture(root.resolve("changed-old-v4"),changedOldFolder);
+        fails(new Action(){public void run() throws Exception{new FontPatcher(changedOldDir).apply();}},"modified v4 category helper rejected");
         Map<String,byte[]> brokenFolder=new LinkedHashMap<String,byte[]>(original);brokenFolder.putAll(payload);brokenFolder.remove(FontPatcher.FOLDER_FILTER);
         Path brokenFolderDir=fixture(root.resolve("missing-folder-helper"),brokenFolder);
         fails(new Action(){public void run() throws Exception{new FontPatcher(brokenFolderDir).apply();}},"missing category helper rejected");
