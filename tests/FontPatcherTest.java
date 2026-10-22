@@ -290,7 +290,7 @@ public final class FontPatcherTest {
         upgrade005.rollback();yes(Arrays.equals(before005,Files.readAllBytes(latest.resolve("core"))),"0.006 rollback restores 0.005 exactly");
         Path bundle=fixture(root.resolve("font-bundle"),original);
         byte[] bundleLicense=Files.readAllBytes(bundle.resolve("licene")), bundleIdentity=Files.readAllBytes(bundle.resolve("info.txt"));
-        FontPatcher bundleTool=new FontPatcher(bundle);
+        FontPatcher bundleTool=new FontPatcher(bundle,"",(url,size)->{throw new IOException("Unexpected download");});
         java.util.List<FontPatcher.FontChange> planned=bundleTool.planFonts();
         yes(planned.size()==70,"bundle contains 70 new open fonts only");
         bundleTool.applyBundle();
@@ -315,6 +315,37 @@ public final class FontPatcherTest {
             yes(bundleTool.planFonts().isEmpty() && Files.exists(bundle.resolve(FontPatcher.STATE+"/fonts-before-0.007/"+oldFont.previous+".gfont.bak")),"0.006 font repaired with verified backup");
         }
         yes(Arrays.equals(bundleLicense,Files.readAllBytes(bundle.resolve("licene"))) && Arrays.equals(bundleIdentity,Files.readAllBytes(bundle.resolve("info.txt"))),"bundle installation preserves license and identity");
+        String realIndex=new String(FontPatcher.read(FontPatcher.resource("fonts/chinese-downloads.tsv")),StandardCharsets.UTF_8);
+        yes(realIndex.trim().split("\n").length==15,"15 pinned Chinese handwriting sources");
+        Path fresh=fixture(root.resolve("download-failures"),original);
+        yes(new FontPatcher(fresh).planFonts().size()==85,"fresh installation plans 70 bundled plus 15 Chinese fonts");
+        byte[] freshCore=Files.readAllBytes(fresh.resolve("core"));
+        byte[] sample="synthetic handwriting font data".getBytes(StandardCharsets.UTF_8);
+        String category="中文-手写完整（GB2312）/sample.gfont";
+        String index=FontPatcher.sha(sample)+"\t"+sample.length+"\thttps://example.test/font\t"+category+"\n";
+        FontPatcher interrupted=new FontPatcher(fresh,index,(url,size)->{throw new IOException("network unavailable");});
+        fails(()->interrupted.applyBundle(),"network failure reported");
+        yes(Arrays.equals(freshCore,Files.readAllBytes(fresh.resolve("core"))) && !Files.exists(fresh.resolve("gcodeFonts")),"failed download changes neither core nor fonts");
+        FontPatcher truncated=new FontPatcher(fresh,index,(url,size)->new byte[]{1});
+        fails(()->truncated.applyBundle(),"truncated download rejected");
+        FontPatcher corrupt=new FontPatcher(fresh,index,(url,size)->new byte[size]);
+        fails(()->corrupt.applyBundle(),"wrong SHA-256 rejected before installation");
+        yes(Arrays.equals(freshCore,Files.readAllBytes(fresh.resolve("core"))) && !Files.exists(fresh.resolve("gcodeFonts")),"download validation failure leaves target unchanged");
+        final int[] fetched={0};
+        FontPatcher online=new FontPatcher(fresh,index,(url,size)->{fetched[0]++;return sample;});
+        online.applyBundle();
+        Path installedFont=fresh.resolve("gcodeFonts").resolve(category);
+        yes(online.inspect().installed && Arrays.equals(sample,Files.readAllBytes(installedFont)),"one action downloads and installs Chinese font in category folder");
+        byte[] onlineCore=Files.readAllBytes(fresh.resolve("core"));
+        FontPatcher offline=new FontPatcher(fresh,index,(url,size)->{throw new IOException("should not fetch");});
+        offline.applyBundle();
+        yes(fetched[0]==1 && Arrays.equals(onlineCore,Files.readAllBytes(fresh.resolve("core"))),"repeat installation is offline and keeps core unchanged");
+        Path uncategorized=fresh.resolve("gcodeFonts/renamed.gfont");Files.move(installedFont,uncategorized);
+        offline.applyBundle();
+        yes(Files.exists(installedFont) && !Files.exists(uncategorized),"existing downloaded font automatically classified without downloading or duplicating");
+        Files.write(installedFont,new byte[]{9});
+        fails(()->offline.applyBundle(),"Chinese destination conflict preserves user font");
+        yes(Arrays.equals(new byte[]{9},Files.readAllBytes(installedFont)),"unknown Chinese file not overwritten");
         System.out.println("Synthetic regression checks passed: " + checks);
     }
 

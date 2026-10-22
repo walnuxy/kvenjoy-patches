@@ -1,4 +1,5 @@
 import java.io.*;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.*;
@@ -26,9 +27,19 @@ public final class FontPatcher {
     final Path dir;
     final Properties expected = new Properties();
     final Map<String,byte[]> replacements = new LinkedHashMap<String,byte[]>();
+    interface Downloader { byte[] get(String source, int size) throws Exception; }
+    interface Progress { void show(String message); }
+    final String downloadIndex;
+    final Downloader downloader;
+    Progress progress = message -> System.out.println(message);
 
     FontPatcher(Path path) throws Exception {
+        this(path, new String(read(resource("fonts/chinese-downloads.tsv")), StandardCharsets.UTF_8),
+            (source,size) -> download(source,size,path.toAbsolutePath()));
+    }
+    FontPatcher(Path path, String index, Downloader fetch) throws Exception {
         dir = path.toRealPath();
+        downloadIndex=index; downloader=fetch;
         try (InputStream in = resource("compatibility.properties")) { expected.load(in); }
         for (String name : NAMES) {
             byte[] data = read(resource("payload/" + name));
@@ -186,17 +197,63 @@ public final class FontPatcher {
     }
     static final class FontChange {
         Path destination;
-        String resource, hash, previous;
-        byte[] before;
+        Path relocateFrom;
+        String resource, hash, previous, source;
+        int size;
+        byte[] before, prepared;
+    }
+    static byte[] download(String source, int size, Path temporaryRoot) throws Exception {
+        require(new URL(source).getProtocol().equals("https"), "字库下载必须使用 HTTPS");
+        // Vendor Java 8 blocks in its modified JCE JarVerifier during TLS setup.
+        // Use Windows PowerShell/.NET HTTPS without changing that runtime.
+        Path temp=temporaryRoot.resolve(".font-download-"
+            +Long.toUnsignedString(RANDOM.nextLong(),16));
+        Files.createDirectory(temp);
+        Path output=temp.resolve("font.download"), log=temp.resolve("download.log");
+        String script="$ErrorActionPreference='Stop';"
+            +"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;"
+            +"$request=[Net.HttpWebRequest]::Create($env:KVFONT_URL);"
+            +"$request.Timeout=20000;$request.ReadWriteTimeout=30000;$request.AllowAutoRedirect=$false;"
+            +"$request.UserAgent='Kvenjoy-Font-Patcher/0.008';"
+            +"$response=$request.GetResponse();$inputStream=$null;$outputStream=$null;"
+            +"try {if([int]$response.StatusCode -ne 200){throw 'Unexpected HTTP response'};"
+            +"$inputStream=$response.GetResponseStream();$outputStream=[IO.File]::Create($env:KVFONT_OUT);"
+            +"$buffer=New-Object byte[] 16384;$total=0;$expected=[int]$env:KVFONT_SIZE;"
+            +"while(($count=$inputStream.Read($buffer,0,$buffer.Length)) -gt 0){"
+            +"$total+=$count;if($total -gt $expected){throw 'Download exceeds manifest size'};"
+            +"$outputStream.Write($buffer,0,$count)};"
+            +"if($total -ne $expected){throw 'Incomplete font download'}"
+            +"} finally {if($outputStream){$outputStream.Dispose()};if($inputStream){$inputStream.Dispose()};$response.Dispose()}";
+        Process process=null;
+        try {
+            String powershell=Paths.get(System.getenv("SystemRoot"),"System32","WindowsPowerShell","v1.0","powershell.exe").toString();
+            ProcessBuilder builder=new ProcessBuilder(powershell,"-NoProfile","-NonInteractive",
+                "-WindowStyle","Hidden","-Command",script);
+            builder.environment().put("KVFONT_URL",source);
+            builder.environment().put("KVFONT_OUT",output.toString());
+            builder.environment().put("KVFONT_SIZE",Integer.toString(size));
+            builder.redirectErrorStream(true).redirectOutput(log.toFile());
+            process=builder.start();
+            require(process.waitFor(120,java.util.concurrent.TimeUnit.SECONDS),"下载超时");
+            require(process.exitValue()==0,"无法连接原始字库来源或下载中断，请检查网络后重试");
+            require(Files.size(output)==size,"字库下载不完整");
+            return Files.readAllBytes(output);
+        } finally {
+            if(process!=null && process.isAlive()) {process.destroyForcibly();process.waitFor();}
+            Files.deleteIfExists(output);Files.deleteIfExists(log);Files.deleteIfExists(temp);
+        }
     }
     List<FontChange> planFonts() throws Exception {
         List<FontChange> changes=new ArrayList<FontChange>();
         Path root=dir.resolve("gcodeFonts");
         Set<String> existing=new HashSet<String>();
+        Map<String,Path> locations=new HashMap<String,Path>();
         if(Files.isDirectory(root)) try(java.util.stream.Stream<Path> walk=Files.walk(root)) {
             for(Iterator<Path> it=walk.iterator();it.hasNext();) {
                 Path p=it.next();
-                if(Files.isRegularFile(p) && p.toString().endsWith(".gfont")) existing.add(sha(Files.readAllBytes(p)));
+                if(Files.isRegularFile(p) && p.toString().endsWith(".gfont")) {
+                    String hash=sha(Files.readAllBytes(p));existing.add(hash);locations.put(hash,p);
+                }
             }
         }
         try(BufferedReader in=new BufferedReader(new InputStreamReader(resource("fonts/index.tsv"),StandardCharsets.UTF_8))) {
@@ -218,10 +275,45 @@ public final class FontPatcher {
                 changes.add(change);
             }
         }
+        for(String line:downloadIndex.split("\n")) {
+            if(line.trim().isEmpty())continue;
+            String[] fields=line.trim().split("\t",-1);
+            require(fields.length==4,"中文下载清单损坏");
+            FontChange change=new FontChange(); change.hash=fields[0];change.size=Integer.parseInt(fields[1]);
+            change.source=fields[2];change.destination=root.resolve(fields[3]).normalize();
+            require(change.hash.matches("[0-9a-f]{64}") && change.size>0 && change.size<=32*1024*1024,
+                "中文下载清单校验值无效");
+            require(change.destination.startsWith(root) && fields[3].startsWith("中文-手写完整（GB2312）/")
+                && fields[3].endsWith(".gfont"),"中文分类路径无效");
+            if(Files.exists(change.destination)) {
+                require(sha(Files.readAllBytes(change.destination)).equals(change.hash),
+                    "同名字体内容不同，已保留原文件："+change.destination);
+                continue;
+            }
+            change.relocateFrom=locations.get(change.hash);
+            changes.add(change);
+        }
         return changes;
     }
     String applyBundle() throws Exception {
+        inspect();
         List<FontChange> changes=planFonts(); // Check every font before changing core or fonts.
+        int downloads=0;
+        for(FontChange change:changes)if(change.source!=null && change.relocateFrom==null)downloads++;
+        int current=0;
+        for(FontChange change:changes) {
+            if(change.source==null)change.prepared=read(resource(change.resource));
+            else if(change.relocateFrom!=null)change.prepared=Files.readAllBytes(change.relocateFrom);
+            else {
+                progress.show("下载中文手写字库 "+(++current)+" / "+downloads+"："+change.destination.getFileName());
+                try {change.prepared=downloader.get(change.source,change.size);}
+                catch(Exception e) {throw new IOException("下载未完成："+change.destination.getFileName()
+                    +"。请检查网络后重新安装；本次尚未修改 core 或字库。\n"+e.getMessage(),e);}
+                require(change.prepared.length==change.size,"字库下载不完整："+change.destination.getFileName());
+            }
+            require(sha(change.prepared).equals(change.hash),"字库 SHA-256 校验失败，尚未安装："+change.destination.getFileName());
+        }
+        progress.show("字库校验完成，正在安装并分类……");
         String ui=apply();
         Path backup=dir.resolve(STATE).resolve("fonts-before-0.007");
         List<FontChange> done=new ArrayList<FontChange>();
@@ -236,17 +328,43 @@ public final class FontPatcher {
                 } else require(!Files.exists(change.destination),"字体在安装期间已创建");
                 Files.createDirectories(change.destination.getParent());
                 done.add(change);
-                replace(change.destination,read(resource(change.resource)));
+                replace(change.destination,change.prepared);
                 require(sha(Files.readAllBytes(change.destination)).equals(change.hash),"字库安装后校验失败");
+                if(change.relocateFrom!=null) {
+                    require(sha(Files.readAllBytes(change.relocateFrom)).equals(change.hash),"待分类字体在安装期间发生变化");
+                    Files.delete(change.relocateFrom);
+                }
             }
         } catch(Exception error) {
             for(FontChange change:done) {
+                if(change.relocateFrom!=null && !Files.exists(change.relocateFrom))replace(change.relocateFrom,change.prepared);
                 if(change.before==null)Files.deleteIfExists(change.destination);
                 else replace(change.destination,change.before);
             }
             throw new IOException("字体界面已更新，但字库安装失败；本次字体改动已撤销。"+error.getMessage(),error);
         }
-        return ui+"\n开源字库已就绪：本次新增或修复 "+changes.size()+" 套。\n包含中文 3 套、英文 55 套、符号 8 套、其他语言 4 套。\n中文分别包含 20,976 / 20,976 / 27,632 个字形。请刷新字体列表。";
+        return ui+"\n字库已就绪：本次新增、修复或分类 "+changes.size()+" 套。\n包含中文 18 套（其中完整手写 15 套）、英文 55 套、符号 8 套、其他语言 4 套。\n每套新增手写字库覆盖 GB2312 全部 6,763 个汉字。\n请选择“中文”分类和“中文-手写完整（GB2312）”文件夹，刷新字体列表。";
+    }
+    String applyWithProgress() throws Exception {
+        final JDialog dialog=new JDialog((java.awt.Frame)null,"安装字库 0.008",true);
+        final JLabel label=new JLabel("正在检查字库……");
+        JProgressBar bar=new JProgressBar();bar.setIndeterminate(true);
+        JPanel panel=new JPanel(new java.awt.BorderLayout(8,16));
+        panel.setBorder(BorderFactory.createEmptyBorder(20,20,20,20));
+        panel.add(label,java.awt.BorderLayout.CENTER);panel.add(bar,java.awt.BorderLayout.SOUTH);
+        dialog.setContentPane(panel);dialog.setSize(620,140);dialog.setLocationRelativeTo(null);
+        dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        Progress previous=progress;
+        progress=message -> SwingUtilities.invokeLater(() -> label.setText(message));
+        SwingWorker<String,Void> worker=new SwingWorker<String,Void>() {
+            protected String doInBackground() throws Exception {return applyBundle();}
+            protected void done(){dialog.dispose();}
+        };
+        try {
+            SwingUtilities.invokeAndWait(() -> {worker.execute();dialog.setVisible(true);});
+            try{return worker.get();}
+            catch(java.util.concurrent.ExecutionException e){throw (Exception)e.getCause();}
+        } finally {progress=previous;dialog.dispose();}
     }
     String apply() throws Exception {
         PackageData data=inspect();
@@ -364,9 +482,9 @@ public final class FontPatcher {
                         + "\n如以前使用本工具安装过，仍可通过“回滚”恢复。";
                 }
                 Object[] options={"安装补丁和字库","回滚界面","只检查","取消"};
-                int choice=JOptionPane.showOptionDialog(null,"目标目录："+tool.dir+"\n"+state+"\n\n安装或回滚前，请退出奎享雕刻。\n更新字体界面与公共文件路径输入，保留本机授权。","字体补丁",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[2]);
+                int choice=JOptionPane.showOptionDialog(null,"目标目录："+tool.dir+"\n"+state+"\n\n安装或回滚前，请退出奎享雕刻。\n更新字体界面与公共文件路径输入，保留本机授权。\n自动导入并分类字库；首次补齐 15 套中文手写字体需联网下载约 51 MB。","字体补丁",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[2]);
                 if(choice<0||choice==3)return;
-                String result=choice==0?tool.applyBundle():choice==1?tool.rollback():state;
+                String result=choice==0?tool.applyWithProgress():choice==1?tool.rollback():state;
                 JOptionPane.showMessageDialog(null,result,"字体补丁",JOptionPane.INFORMATION_MESSAGE);
             } else {
                 String result;
