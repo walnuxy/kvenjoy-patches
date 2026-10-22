@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "kvenjoy-font-patcher-20261022-0.005"
+VERSION = "kvenjoy-font-patcher-20261022-0.007"
 
 
 def main():
@@ -30,8 +30,8 @@ def main():
     with zipfile.ZipFile(ROOT / "dist" / (VERSION + ".zip")) as release:
         with zipfile.ZipFile(io.BytesIO(release.read("font-patcher.jar"))) as template:
             resources = {n: template.read(n) for n in template.namelist()
-                         if n == "compatibility.properties" or n.startswith("payload/")}
-    if len(resources) != 8:
+                         if n == "compatibility.properties" or n.startswith(("payload/", "fonts/"))}
+    if sum(n.startswith("payload/") for n in resources) != 7 or "fonts/index.tsv" not in resources:
         raise RuntimeError("Expected compatibility fingerprints and exactly seven payload classes")
     build = ROOT / "build"
     build.mkdir(exist_ok=True)
@@ -62,7 +62,9 @@ def main():
                             str(ROOT / "dist/kvenjoy-font-patcher-20261022-v1.zip"),
                             str(ROOT / "dist/kvenjoy-font-patcher-20261022-v2.zip"),
                             str(ROOT / "dist/kvenjoy-font-patcher-20261022-v3.zip"),
-                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v4.zip")], check=True)
+                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v4.zip"),
+                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-0.005.zip"),
+                            str(ROOT / "tests/fixtures/Plot-EMSDelight-0.006.gfont")], check=True)
     print("Built", jar)
     print("Use the launcher scripts beside this JAR, or: java -jar font-patcher.jar --check <installation-folder>")
 

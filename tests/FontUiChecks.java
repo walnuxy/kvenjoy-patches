@@ -36,6 +36,8 @@ public final class FontUiChecks {
     private static Path evidencePath;
 
     public static void main(String[] args) throws Exception {
+
+
         Path evidence = Paths.get(args.length > 0 ? args[0] : "font-ui/evidence/font-ui-checks.txt");
         evidencePath = evidence;
         System.setProperty("java.awt.headless", "false");
@@ -122,6 +124,39 @@ public final class FontUiChecks {
         final JScrollPane scroll = (JScrollPane)get(dialog, "selectedScroll");
         final JPanel selectedPanel = (JPanel)get(dialog, "selectedPanel");
         final JLabel header = (JLabel)get(dialog, "h");
+
+        SwingUtilities.invokeAndWait(() -> {
+            FontFolderFilter filter = (FontFolderFilter)get(dialog, "folderFilter");
+            javax.swing.JComboBox kind = (javax.swing.JComboBox)get(filter, "kind");
+            JButton favorite = (JButton)get(filter, "favorite");
+            java.io.File root = (java.io.File)get(filter, "directory");
+            java.util.Map files = (java.util.Map)get(local, "b");
+            for (int i=0;i<40;i++) files.put(local.fontListModel.get(i), new java.io.File(root, "mock-"+i+".gfont"));
+            files.put(local.fontListModel.get(0), new java.io.File(root, "中文/a.gfont"));
+            files.put(local.fontListModel.get(1), new java.io.File(root, "英文/b.gfont"));
+            files.put(local.fontListModel.get(2), new java.io.File(root, "符号/c.gfont"));
+            filter.refresh();
+            kind.setSelectedItem("中文");
+            check("中文分类筛选", leftList.getModel().getSize()==1 && leftList.getModel().getElementAt(0)==local.fontListModel.get(0));
+            leftList.setSelectedIndex(0);
+            favorite.doClick();
+            check("加入喜好后按钮变为取消喜好", "取消喜好".equals(favorite.getText()));
+            kind.setSelectedItem("喜好字体");
+            check("喜好分类只显示已收藏字体", leftList.getModel().getSize()==1);
+            check("收藏已持久保存", ((java.io.File)get(filter,"favoritesFile")).isFile());
+            java.util.Properties stored = new java.util.Properties();
+            try (java.io.InputStream in = new java.io.FileInputStream((java.io.File)get(filter,"favoritesFile"))) {
+                stored.load(in);
+            } catch (java.io.IOException error) { throw new RuntimeException(error); }
+            check("磁盘喜好可重新读取且对应当前字体", stored.getProperty("a.gfont").equals(((v)local.fontListModel.get(0)).b));
+            leftList.setSelectedIndex(0); favorite.doClick();
+            check("取消喜好立即更新筛选",leftList.getModel().getSize()==0 && !favorite.isEnabled());
+            check("收藏操作不改变右侧选择",right.size()==0);
+            kind.setSelectedItem("英文"); check("英文分类筛选",leftList.getModel().getSize()==1);
+            kind.setSelectedItem("符号"); check("符号分类筛选",leftList.getModel().getSize()==1);
+            kind.setSelectedItem("全部");
+            check("退出分类恢复全部四十字体",leftList.getModel().getSize()==40);
+        });
 
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {

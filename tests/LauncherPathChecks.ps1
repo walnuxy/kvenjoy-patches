@@ -13,6 +13,9 @@ Check ((Resolve-InstallationPath ('"'+$fixture+'"')) -eq $fixture) 'quoted paste
 Check ((Resolve-InstallationPath (Join-Path $fixture '奎享雕刻.exe')) -eq $fixture) 'pasted executable path'
 $env:KVENJOY_TEST_ROOT=$fixture
 Check ((Resolve-InstallationPath '%KVENJOY_TEST_ROOT%') -eq $fixture) 'environment variable path'
+$bad=$false;try {Resolve-PatcherJar $fixture | Out-Null}catch{$bad=$_.Exception.Message -like '*font-patcher.jar*' -and $_.Exception.Message -like '*补丁包不完整*'};Check $bad 'missing bundle explains package rather than installation path'
+[IO.File]::WriteAllText((Join-Path $fixture 'font-patcher.jar'),'synthetic')
+Check ((Resolve-PatcherJar $fixture) -eq (Join-Path $fixture 'font-patcher.jar')) 'source ZIP root launcher resolves adjacent JAR'
 $bad=$false;try {Resolve-InstallationPath '' | Out-Null}catch{$bad=$true};Check $bad 'empty path rejected'
 $bad=$false;try {Resolve-InstallationPath $FixtureRoot | Out-Null}catch{$bad=$true};Check $bad 'incomplete folder rejected'
 $form=New-InstallationPathForm $fixture
@@ -21,9 +24,9 @@ try {
  Check ($box -is [System.Windows.Forms.TextBox] -and -not $box.ReadOnly) 'editable pasteable path box'
  Check ($form.AcceptButton.Text -eq '继续') 'enter submits path'
  Check ($form.CancelButton.DialogResult -eq [System.Windows.Forms.DialogResult]::Cancel) 'escape cancels'
- $form.Show();$box.Text='';$form.AcceptButton.PerformClick()
+ $form.Show();[System.Windows.Forms.Application]::DoEvents();$box.Text='';$form.AcceptButton.PerformClick()
  Check ($form.DialogResult -ne [System.Windows.Forms.DialogResult]::OK -and $form.Controls.Find('PathError',$true)[0].Text.Length -gt 0) 'invalid path keeps dialog open with feedback'
- $box.Text='"'+$fixture+'"';$form.AcceptButton.PerformClick()
+ $box.Text='"'+$fixture+'"';[System.Windows.Forms.Application]::DoEvents();$form.AcceptButton.PerformClick()
  Check ($form.Tag -eq $fixture -and $form.DialogResult -eq [System.Windows.Forms.DialogResult]::OK) 'pasted path confirmed through actual form action'
 } finally {$form.Dispose()}
 Write-Output "Launcher path checks passed: $script:checks"

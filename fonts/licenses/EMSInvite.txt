@@ -1,0 +1,9 @@
+
+Font name:               EMS Invite
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Tangerine
+Designer:                Toshi Omagari
+Link:                    http://tosche.net/about
+Google font page:        https://fonts.google.com/specimen/Tangerine

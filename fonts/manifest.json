@@ -1,0 +1,705 @@
+{
+  "version": "0.007",
+  "fonts": [
+    {
+      "file": "英文/Cutlings/Plot-CutlingsDualis.gfont",
+      "name": "Plot-CutlingsDualis",
+      "glyphs": 96,
+      "sha256": "ad4eb3b63a8cf63b693924df405710a5e1c73d3238026ccfd6e2deaf9db362ce",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\CutlingsDualis.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-CutlingsGeometric.gfont",
+      "name": "Plot-CutlingsGeometric",
+      "glyphs": 110,
+      "sha256": "4f693d86356f97cf225354a6d8d59c6a09081df289a511c9b59bb971af02b02f",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\CutlingsGeometric.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-CutlingsGeometricRound.gfont",
+      "name": "Plot-CutlingsGeometricRound",
+      "glyphs": 110,
+      "sha256": "91fe95260484813583b62081cd359a5a1953fc3ef0e17baa75cbd78466e55326",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\CutlingsGeometricRound.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-CutlingsPluralis.gfont",
+      "name": "Plot-CutlingsPluralis",
+      "glyphs": 96,
+      "sha256": "a0e41ee4ca2461ff14f9be57b39d6ae54d1691aa634fcb4e2af01debcbf3f6d9",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\CutlingsPluralis.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-CutlingsSingularis.gfont",
+      "name": "Plot-CutlingsSingularis",
+      "glyphs": 96,
+      "sha256": "e67a1b1fafd16223c553738176b1b7b4718bfb608bd1cef6e3846adb86c8dcdf",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\CutlingsSingularis.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-EMS_Allure_Smooth.gfont",
+      "name": "Plot-EMS_Allure_Smooth",
+      "glyphs": 205,
+      "sha256": "a0b38c060a1f23ecee8399d1d49fbdecd3a2605675e1abac187946f8d89a6204",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\EMS_Allure_Smooth.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-EMS_Elfin_Smooth.gfont",
+      "name": "Plot-EMS_Elfin_Smooth",
+      "glyphs": 166,
+      "sha256": "c9287cc85b45bc3ac9c13182f7cbb3c261c70740cd1c4d7e738cd88e116bb9b0",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\EMS_Elfin_Smooth.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Cutlings/Plot-HersheyScript1smooth.gfont",
+      "name": "Plot-HersheyScript1smooth",
+      "glyphs": 164,
+      "sha256": "aeb6c9ca71ddde9c6a9829c5b1117e26b96104b1d50c9bddf888d1126bcb5289",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Cutlings\\HersheyScript1smooth.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSAllure.gfont",
+      "name": "Plot-EMSAllure",
+      "glyphs": 206,
+      "sha256": "213f1cae44e1308448082213b71ac36a081352e0c765688555404143b000305c",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSAllure.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSBird.gfont",
+      "name": "Plot-EMSBird",
+      "glyphs": 206,
+      "sha256": "5597cea3487599978180e8f6601265489605324af4284ae5e48c4393ee58eaa1",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSBird.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSBirdSwashCaps.gfont",
+      "name": "Plot-EMSBirdSwashCaps",
+      "glyphs": 206,
+      "sha256": "a9157df3ce7a7560714b8e952f349bc0016e02ff2de80ccaddf087476a88ee26",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSBirdSwashCaps.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSBrush.gfont",
+      "name": "Plot-EMSBrush",
+      "glyphs": 206,
+      "sha256": "fb336c11b1da32880be5339750aca167c4d81426940c8d279da2d0565c46a968",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSBrush.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSCapitol.gfont",
+      "name": "Plot-EMSCapitol",
+      "glyphs": 206,
+      "sha256": "51a12ea594142a123002385d96ee54ccddc9972d5b9880bc6279d763ba8b1ca8",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSCapitol.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSCasualHand.gfont",
+      "name": "Plot-EMSCasualHand",
+      "glyphs": 206,
+      "sha256": "91075bf097af65f7f03567741ade6dd435c38297859b3afebee0fd8ee8d233de",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSCasualHand.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSDecorousScript.gfont",
+      "name": "Plot-EMSDecorousScript",
+      "glyphs": 206,
+      "sha256": "bbf9a0e1a71f0f5a37c76df84b43d2ad9bd19d39b2c230a834db85a96f8b2d29",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSDecorousScript.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSDelight.gfont",
+      "name": "Plot-EMSDelight",
+      "glyphs": 206,
+      "sha256": "222d4b2c4d7026005117b7ae9ae7b616b8631ec1d06b5d92f9c0c9ccf2238abc",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSDelight.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSDelightSwashCaps.gfont",
+      "name": "Plot-EMSDelightSwashCaps",
+      "glyphs": 206,
+      "sha256": "0b5a990c355609414f0e6750f5efffd0cb7d1f7ed3e6f03a7dc80cc4eb9132fa",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSDelightSwashCaps.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSElfin.gfont",
+      "name": "Plot-EMSElfin",
+      "glyphs": 206,
+      "sha256": "4e6281bb285456a0efe0a34ad69f17a3e345f0e97ec59c3cbe4c2d29baa90278",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSElfin.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSFelix.gfont",
+      "name": "Plot-EMSFelix",
+      "glyphs": 206,
+      "sha256": "a0039966e47a7b8acbb38d9a28346424012379303e43658f95775f6543aed9fe",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSFelix.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSHerculean.gfont",
+      "name": "Plot-EMSHerculean",
+      "glyphs": 206,
+      "sha256": "060cd1b60c7143679523e43fe56c314d124fb880d2dc89d42a80d7f2c2d8226c",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSHerculean.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSInvite.gfont",
+      "name": "Plot-EMSInvite",
+      "glyphs": 206,
+      "sha256": "8459bb0924419a07916fc920cd4a6f4ef627905230ad9876cea4de0b7f6442aa",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSInvite.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSLeague.gfont",
+      "name": "Plot-EMSLeague",
+      "glyphs": 206,
+      "sha256": "bd86f7bf6047dab3e5a09e430d6e88292dc8ae1e3a38c3abb1b398f0646eccd9",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSLeague.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSLittlePrincess.gfont",
+      "name": "Plot-EMSLittlePrincess",
+      "glyphs": 206,
+      "sha256": "a59a131543eabf79c3cab7df9c832c41d93d9b07089c8b1f8b148a62b2ada36b",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSLittlePrincess.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSMistyNight.gfont",
+      "name": "Plot-EMSMistyNight",
+      "glyphs": 206,
+      "sha256": "506c1abf43a6783f6ea78c5a7eed88615cd40ec3d97b6e70bae1a47db980fd8d",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSMistyNight.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSNeato.gfont",
+      "name": "Plot-EMSNeato",
+      "glyphs": 206,
+      "sha256": "539071cd40d80defaa31a56f801d679ba709e53370cabe10a336b910aa8cc0c3",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSNeato.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSNixish.gfont",
+      "name": "Plot-EMSNixish",
+      "glyphs": 206,
+      "sha256": "ccf039e7b612afacb99b0167ab43c3ccc23d2d02df22b56854c7805402e60e11",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSNixish.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSNixishItalic.gfont",
+      "name": "Plot-EMSNixishItalic",
+      "glyphs": 206,
+      "sha256": "a6fd9304af2d9a72f51ce94ca7ed5f6522de34a1e9e72fcb0f7338b17cd04247",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSNixishItalic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSOsmotron.gfont",
+      "name": "Plot-EMSOsmotron",
+      "glyphs": 206,
+      "sha256": "da682819b1f81d92700c617f62ea43bc9e69f4e4bcf910453954ebf3746b4b0b",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSOsmotron.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSPancakes.gfont",
+      "name": "Plot-EMSPancakes",
+      "glyphs": 206,
+      "sha256": "b10c89068785742f40a81e186bedefb78de2872a667028c42b523fa8391e6926",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSPancakes.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSPepita.gfont",
+      "name": "Plot-EMSPepita",
+      "glyphs": 206,
+      "sha256": "05d05f27b2159c678fb1fc9d16ed93d9cf48757fa28a9184a824b80a06ecdad4",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSPepita.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSQwandry.gfont",
+      "name": "Plot-EMSQwandry",
+      "glyphs": 206,
+      "sha256": "1d65d01b7e1b2f70e0c28d2ff2f90d2df6609986cc2adbd64024adb532c02921",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSQwandry.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSReadability.gfont",
+      "name": "Plot-EMSReadability",
+      "glyphs": 206,
+      "sha256": "0aa1e7403edd60639434de54d512679305ebaf0ae2a4cda19766c8f9cf7b1e3f",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSReadability.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSReadabilityItalic.gfont",
+      "name": "Plot-EMSReadabilityItalic",
+      "glyphs": 206,
+      "sha256": "07cccfe318159606261c51cfd63fe358e7e647fbf36ef2819c92668c9bcae03a",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSReadabilityItalic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSSociety.gfont",
+      "name": "Plot-EMSSociety",
+      "glyphs": 206,
+      "sha256": "74d2923597b149c9cf02fdf5c1df83cf80b32fe274bf5c33f156e5febed78d53",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSSociety.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSSpaceRocks.gfont",
+      "name": "Plot-EMSSpaceRocks",
+      "glyphs": 95,
+      "sha256": "e2c536802b402e48f1aa0329a301ed40aff14f10b96a1398b232de5cf61f4b94",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSSpaceRocks.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSSwiss.gfont",
+      "name": "Plot-EMSSwiss",
+      "glyphs": 206,
+      "sha256": "877f631cb0047b4279c66e5f43fd09516919796470887764f7d964f873d1ea4e",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSSwiss.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/EMS/Plot-EMSTech.gfont",
+      "name": "Plot-EMSTech",
+      "glyphs": 206,
+      "sha256": "9f9bc48407f2180e0d3af31dc38607a68da4f42e4bd97dd899f42bdde45b233d",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\EMS\\EMSTech.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheyAstrology.gfont",
+      "name": "Plot-HersheyAstrology",
+      "glyphs": 96,
+      "sha256": "ffccdd5c9bb0e62593befd2f661cb29a5351e2b1033f8bd7d41c4f277f844d83",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyAstrology.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "其他语言/Hershey/Plot-HersheyCyrillic.gfont",
+      "name": "Plot-HersheyCyrillic",
+      "glyphs": 94,
+      "sha256": "7e42c35c33d5bcfc3263180aaaffc4799c037fe012396a7c382cc990418e7c51",
+      "origin": "converted-svg",
+      "category": "其他语言",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyCyrillic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheyGothEnglish.gfont",
+      "name": "Plot-HersheyGothEnglish",
+      "glyphs": 206,
+      "sha256": "c4d373da198a35a691b2b57eb1cd6ad98f8559b571132dc831098181312cd6fc",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyGothEnglish.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheyGothGerman.gfont",
+      "name": "Plot-HersheyGothGerman",
+      "glyphs": 206,
+      "sha256": "ce3755f5ba82e576aacae3a8152955193ff9bbafaa7746ba67651a7aba79d47d",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyGothGerman.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheyGothItalian.gfont",
+      "name": "Plot-HersheyGothItalian",
+      "glyphs": 206,
+      "sha256": "27abbe49f5521896b4bef74f4d493adb9ef13b9d193a751bd44ac2457395ebd3",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyGothItalian.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "其他语言/Hershey/Plot-HersheyGreek1stroke.gfont",
+      "name": "Plot-HersheyGreek1stroke",
+      "glyphs": 96,
+      "sha256": "8184b6b28c588a2c2f04705603769975dd9e53eeafb4776decdf2e41cc6a5da5",
+      "origin": "converted-svg",
+      "category": "其他语言",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyGreek1stroke.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "其他语言/Hershey/Plot-HersheyGreekmedium.gfont",
+      "name": "Plot-HersheyGreekmedium",
+      "glyphs": 96,
+      "sha256": "241c4231db38c795ae7cf4cf28f42ab1b6b7647a5102bc35eb9fc2da079fb916",
+      "origin": "converted-svg",
+      "category": "其他语言",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyGreekmedium.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "其他语言/Hershey/Plot-HersheyJapanese.gfont",
+      "name": "Plot-HersheyJapanese",
+      "glyphs": 193,
+      "sha256": "1c8d40e755276a4f37b9203136c54629c6a7fba2e0ba3d9a63e53c6236d376cd",
+      "origin": "converted-svg",
+      "category": "其他语言",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyJapanese.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheyMarkers.gfont",
+      "name": "Plot-HersheyMarkers",
+      "glyphs": 33,
+      "sha256": "3231e7aa55b676f79e0e3443ab62d1ab50588d9b6403eb858ea7d923cd9c1fd1",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyMarkers.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheyMath(lower).gfont",
+      "name": "Plot-HersheyMath(lower)",
+      "glyphs": 96,
+      "sha256": "63eb1722e760ee96007de0c3b23e8ed7bf8887d8ab1c3411c812367b217dbe17",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyMath(lower).svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheyMath(upper).gfont",
+      "name": "Plot-HersheyMath(upper)",
+      "glyphs": 96,
+      "sha256": "6efc7dae7cd4feedeb15ee1bc90c5674a9d2c03a7853f3d5f32cd0b245bd1774",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyMath(upper).svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheyMeteorology.gfont",
+      "name": "Plot-HersheyMeteorology",
+      "glyphs": 96,
+      "sha256": "d09b438cc24b80ed39c182fdcb25fab3b15f6154e1657528de5dd2b03e7c1dc0",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyMeteorology.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheyMusic.gfont",
+      "name": "Plot-HersheyMusic",
+      "glyphs": 96,
+      "sha256": "33b16b1850fe9c50cc64e7d01434ee8bd86d9bfe2b10a3ed9808a529e3cd1230",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyMusic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySans1.gfont",
+      "name": "Plot-HersheySans1",
+      "glyphs": 206,
+      "sha256": "56894019cd7a5ab285be952e4abe2f5ce52c26ca5bf9fe0f6ae873a8facd042d",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySans1.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySansbold.gfont",
+      "name": "Plot-HersheySansbold",
+      "glyphs": 96,
+      "sha256": "0a4e4534c990759154093a56e50a765acf61f15225029329e7bb6f53f2fbf131",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySansbold.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySansMed.gfont",
+      "name": "Plot-HersheySansMed",
+      "glyphs": 206,
+      "sha256": "e889e69a16382714475d8f23218559d0729122502379deb8e8b0214641badcf7",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySansMed.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheyScript1-stroke(alt).gfont",
+      "name": "Plot-HersheyScript1-stroke(alt)",
+      "glyphs": 96,
+      "sha256": "f7324bd5ba307fa3038f4067596d0aeeebab8fb582b6846661f2c2585d315409",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyScript1-stroke(alt).svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheyScript1.gfont",
+      "name": "Plot-HersheyScript1",
+      "glyphs": 206,
+      "sha256": "ff1f0cd6d39bf5d73e76eda36767f1a1d833620129c91aebd7ff2568b9edc0e7",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyScript1.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheyScriptMed.gfont",
+      "name": "Plot-HersheyScriptMed",
+      "glyphs": 206,
+      "sha256": "3ca01f1b951c59ac35dbb5503caaf629f229594d24c636d443f6cbaf5c7f5cbb",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheyScriptMed.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySerifBold.gfont",
+      "name": "Plot-HersheySerifBold",
+      "glyphs": 206,
+      "sha256": "6560f62b7c53c36846a836d3d3ff3ac5cdb2c6c1cf0d1e9279dbff3abe482ba1",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySerifBold.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySerifBoldItalic.gfont",
+      "name": "Plot-HersheySerifBoldItalic",
+      "glyphs": 206,
+      "sha256": "95d35a48afc0294432fc2e2a1a1bb8e7e5d54d48b0d8abc16a734108831a80f8",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySerifBoldItalic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySerifMed.gfont",
+      "name": "Plot-HersheySerifMed",
+      "glyphs": 206,
+      "sha256": "1bd02e398057fb840bfecd81cf3e76c84f4421b1601b9688567c96d82c759b5c",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySerifMed.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Hershey/Plot-HersheySerifMedItalic.gfont",
+      "name": "Plot-HersheySerifMedItalic",
+      "glyphs": 206,
+      "sha256": "b12338e82a9b78ddb775af46b6cad6158a97cf649ee7e34f02e8202bfbe7940a",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySerifMedItalic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "符号/Hershey/Plot-HersheySymbolic.gfont",
+      "name": "Plot-HersheySymbolic",
+      "glyphs": 96,
+      "sha256": "4cc97155ec97c097edb2edf6de7f553968a787007cf888665a047a1e9abf8173",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Hershey\\HersheySymbolic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Relief/Plot-ReliefSingleLine-Regular.gfont",
+      "name": "Plot-ReliefSingleLine-Regular",
+      "glyphs": 423,
+      "sha256": "b8b8d48c003ed7fd7d8cde5283059acdca77d1c72c6a37f972067dfa1de24623",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Relief\\ReliefSingleLine-Regular.svg",
+      "omitted_ligatures": 135
+    },
+    {
+      "file": "符号/Relief/Plot-ReliefSingleLineOrnament-Regular.gfont",
+      "name": "Plot-ReliefSingleLineOrnament-Regular",
+      "glyphs": 56,
+      "sha256": "f3b1c1e3cc9325e8eb7728e625b8e6cda1b5815ea11811275091378769b20f57",
+      "origin": "converted-svg",
+      "category": "符号",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Relief\\ReliefSingleLineOrnament-Regular.svg",
+      "omitted_ligatures": 113
+    },
+    {
+      "file": "英文/fonts/Plot-RoutedGothic.gfont",
+      "name": "Plot-RoutedGothic",
+      "glyphs": 456,
+      "sha256": "675917f179a0d629b624c1ae2c912e55006cd9711e3cd7d35724b902a5ab0c2d",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\RoutedGothic.svg",
+      "omitted_ligatures": 1
+    },
+    {
+      "file": "英文/Shriinivas/Plot-Custom-Script.gfont",
+      "name": "Plot-Custom-Script",
+      "glyphs": 98,
+      "sha256": "4789b85d48f0f2453221dc2a93e77f687707baea247655a9b6a847d6af1dcaa6",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Shriinivas\\Custom-Script.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Shriinivas/Plot-Custom-SquareItalic.gfont",
+      "name": "Plot-Custom-SquareItalic",
+      "glyphs": 98,
+      "sha256": "8f2d1bf69b162745f1012e66965c28de0a0fcb3ed6e4369f2b9313d95c135037",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Shriinivas\\Custom-SquareItalic.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "英文/Shriinivas/Plot-Custom-SquareNormal.gfont",
+      "name": "Plot-Custom-SquareNormal",
+      "glyphs": 98,
+      "sha256": "7f8d3377ba13232de41a8767795a4a6a6af0f8492a8af0aa96dfd4bab07221e3",
+      "origin": "converted-svg",
+      "category": "英文",
+      "source": "msurguy_stroke-font-studio\\public\\fonts\\Shriinivas\\Custom-SquareNormal.svg",
+      "omitted_ligatures": 0
+    },
+    {
+      "file": "中文/开源单线/Plot-中文黑体单线.gfont",
+      "name": "Plot-中文黑体单线",
+      "glyphs": 20976,
+      "sha256": "eedc058c601bd16a276e696e9b09d8b13a95c97ea8048c869fc265789ed8f069",
+      "origin": "converted-json",
+      "category": "中文",
+      "source": "LingDong-_chinese-hershey-font\\dist\\json\\STRK-Heiti.json",
+      "omitted_non_bmp": 0
+    },
+    {
+      "file": "中文/开源单线/Plot-中文楷体单线.gfont",
+      "name": "Plot-中文楷体单线",
+      "glyphs": 20976,
+      "sha256": "0d4eb6233935a270d76b858c034ba8d19f73211e049cbc8b2445ee844b4f0ce0",
+      "origin": "converted-json",
+      "category": "中文",
+      "source": "LingDong-_chinese-hershey-font\\dist\\json\\STRK-Kaiti.json",
+      "omitted_non_bmp": 0
+    },
+    {
+      "file": "中文/开源单线/Plot-中文明朝体单线.gfont",
+      "name": "Plot-中文明朝体单线",
+      "glyphs": 27632,
+      "sha256": "b04622c8017ae17e2700ed8467ac3bbe07fbf98e96e6d58ea3f3aa6702fafb94",
+      "origin": "converted-json",
+      "category": "中文",
+      "source": "LingDong-_chinese-hershey-font\\dist\\json\\STRK-Mingti.json",
+      "omitted_non_bmp": 0
+    }
+  ]
+}

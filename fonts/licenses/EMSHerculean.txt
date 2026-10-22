@@ -1,0 +1,9 @@
+
+Font name:               EMS Herculean
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Poiret One
+Designer:                Denis Masharov
+Link:                    https://www.myfonts.com/foundry/Denis_Masharov/
+Google font page:        https://fonts.google.com/specimen/Poiret+One

@@ -1,0 +1,5 @@
+
+Font name:               Cutlings Singularis
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Designed by:             Ellen Wasbo
+Link:                    http://cutlings.wasbo.net/

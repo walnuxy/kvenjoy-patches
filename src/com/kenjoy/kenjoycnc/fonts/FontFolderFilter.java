@@ -6,9 +6,14 @@ import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.FlowLayout;
 import java.io.File;
+import java.io.*;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipEntry;
 import javax.swing.*;
 import javax.swing.event.*;
 
@@ -21,6 +26,11 @@ public final class FontFolderFilter implements ListDataListener {
     private DefaultListModel source;
     private final DefaultListModel visible = new DefaultListModel();
     private final JComboBox<String> category = new JComboBox<String>();
+    private final JComboBox<String> kind = new JComboBox<String>(new String[]{ALL, "喜好字体", "中文", "英文", "符号", "其他语言"});
+    private final JButton favorite = new JButton("加入喜好");
+    private final Properties favorites = new Properties();
+    private final File favoritesFile = new File(System.getProperty("user.home"), ".KenjoyDraw/font-favorites.properties");
+    private final Map<String, String> kinds = new HashMap<String, String>();
     private final JLabel count = new JLabel();
     private boolean rebuilding;
     private boolean refreshPending;
@@ -41,16 +51,23 @@ public final class FontFolderFilter implements ListDataListener {
             throw new IllegalStateException("字体文件来源与当前版本不兼容", e);
         }
         JPanel row = new JPanel(new BorderLayout(6, 3));
+        JPanel types = new JPanel(new BorderLayout(6, 0));
+        types.add(new JLabel("字体分类："), BorderLayout.WEST);
+        kind.setName("FontKindCategory");
+        types.add(kind, BorderLayout.CENTER);
+        favorite.setName("FontFavoriteToggle");
+        types.add(favorite, BorderLayout.EAST);
+        row.add(types, BorderLayout.NORTH);
         JPanel choices = new JPanel(new BorderLayout(6, 0));
         choices.add(new JLabel("文件夹分类："), BorderLayout.WEST);
         category.setName("FontFolderCategory");
         choices.add(category, BorderLayout.CENTER);
-        row.add(choices, BorderLayout.NORTH);
+        row.add(choices, BorderLayout.CENTER);
         JButton open = new JButton("打开字体目录");
         JButton refresh = new JButton("刷新");
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         actions.add(open); actions.add(refresh); actions.add(count);
-        row.add(actions, BorderLayout.CENTER);
+        row.add(actions, BorderLayout.SOUTH);
         BorderLayout layout = (BorderLayout)local.getLayout();
         Component search = layout.getLayoutComponent(BorderLayout.NORTH);
         if (search != null) local.remove(search);
@@ -59,6 +76,13 @@ public final class FontFolderFilter implements ListDataListener {
         if (search != null) header.add(search, BorderLayout.CENTER);
         local.add(header, BorderLayout.NORTH);
         category.addActionListener(e -> { if (!rebuilding) refresh(); });
+        kind.addActionListener(e -> refresh());
+        local.listFonts.addListSelectionListener(e -> updateFavorite());
+        favorite.addActionListener(e -> toggleFavorite());
+        if (favoritesFile.isFile()) {
+            try (InputStream in = new FileInputStream(favoritesFile)) { favorites.load(in); }
+            catch (IOException ex) { JOptionPane.showMessageDialog(local, "读取喜好字体失败：" + ex.getMessage()); }
+        }
         refresh.addActionListener(e -> local.load());
         open.addActionListener(e -> {
             try { Desktop.getDesktop().open(directory); }
@@ -96,6 +120,68 @@ public final class FontFolderFilter implements ListDataListener {
         return relative.getNameCount() > 1 ? relative.getName(0).toString() : ROOT;
     }
 
+    private String favoriteKey(v font) {
+        // Saved selections also use the filename; keep favorites when folders move.
+        File file = (File)files.get(font);
+        return file != null ? file.getName() : font.f != null ? font.f : font.b;
+    }
+
+    private void updateFavorite() {
+        v font = (v)local.listFonts.getSelectedValue();
+        favorite.setEnabled(font != null);
+        favorite.setText(font != null && favorites.containsKey(favoriteKey(font)) ? "取消喜好" : "加入喜好");
+    }
+
+    private void toggleFavorite() {
+        v font = (v)local.listFonts.getSelectedValue();
+        if (font == null) return;
+        String key = favoriteKey(font);
+        Object previous = favorites.remove(key);
+        if (previous == null) favorites.setProperty(key, font.b);
+        Path temporary = null;
+        try {
+            Files.createDirectories(favoritesFile.toPath().getParent());
+            temporary = favoritesFile.toPath().resolveSibling("font-favorites-" + Long.toHexString(System.nanoTime()) + ".tmp");
+            try (OutputStream out = Files.newOutputStream(temporary, java.nio.file.StandardOpenOption.CREATE_NEW)) {
+                favorites.store(out, "Kvenjoy favorite fonts");
+            }
+            Files.move(temporary, favoritesFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ex) {
+            if (previous == null) favorites.remove(key); else favorites.put(key, previous);
+            JOptionPane.showMessageDialog(local, "保存喜好字体失败：" + ex.getMessage());
+        } finally {
+            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
+        }
+        refresh();
+    }
+
+    String kindOf(v font) {
+        File file = (File)files.get(font);
+        if (file == null) return "";
+        String folder = folderOf(font);
+        for (String type : new String[]{"中文", "英文", "符号", "其他语言"})
+            if (folder.equals(type) || folder.startsWith(type + "-")) return type;
+        String key = file.getAbsolutePath() + ":" + file.length() + ":" + file.lastModified();
+        if (kinds.containsKey(key)) return kinds.get(key);
+        int chinese = 0, latin = 0, symbols = 0, other = 0;
+        try (ZipFile zip = new ZipFile(file)) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                String name = entries.nextElement().getName();
+                int cp;
+                try { cp = font.a() < 3 ? name.codePointAt(0) : Integer.parseInt(name); }
+                catch (RuntimeException ex) { continue; }
+                if ((cp >= 0x3400 && cp <= 0x9fff) || (cp >= 0xf900 && cp <= 0xfaff)) chinese++;
+                else if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z')) latin++;
+                else if (Character.isLetter(cp)) other++;
+                else if (cp > 127 && !Character.isWhitespace(cp) && !Character.isDigit(cp)) symbols++;
+            }
+        } catch (IOException ex) { return ""; }
+        String value = chinese > 0 ? "中文" : other > latin ? "其他语言" : symbols > latin ? "符号" : latin > 0 ? "英文" : symbols > 0 ? "符号" : "";
+        kinds.put(key, value);
+        return value;
+    }
+
     void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { scheduleRefresh(); return; }
         String selected = (String)category.getSelectedItem();
@@ -111,14 +197,18 @@ public final class FontFolderFilter implements ListDataListener {
             category.setSelectedItem(selected != null && (ALL.equals(selected) || ROOT.equals(selected) || folders.contains(selected)) ? selected : ALL);
         } finally { rebuilding = false; }
         selected = (String)category.getSelectedItem();
+        String selectedKind = (String)kind.getSelectedItem();
         Object previous = local.listFonts.getSelectedValue();
         visible.clear();
         for (int i=0;i<source.size();i++) {
             v font = (v)source.get(i);
-            if (ALL.equals(selected) || selected.equals(folderOf(font))) visible.addElement(font);
+            boolean matchesKind = ALL.equals(selectedKind) || ("喜好字体".equals(selectedKind)
+                ? favorites.containsKey(favoriteKey(font)) : selectedKind.equals(kindOf(font)));
+            if (matchesKind && (ALL.equals(selected) || selected.equals(folderOf(font)))) visible.addElement(font);
         }
         if (previous != null && visible.contains(previous)) local.listFonts.setSelectedValue(previous, true);
         count.setText(visible.size() + " / " + source.size());
+        updateFavorite();
         local.listFonts.revalidate(); local.listFonts.repaint();
     }
 }

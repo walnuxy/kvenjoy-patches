@@ -1,0 +1,9 @@
+
+Font name:               EMS Pepita
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Pecita
+Designer:                Philippe Cochy
+Link:                    http://pecita.eu/police-en.php
+FontSquirrel page:       https://www.fontsquirrel.com/fonts/Pecita

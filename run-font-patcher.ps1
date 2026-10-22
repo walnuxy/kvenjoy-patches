@@ -5,6 +5,14 @@
 
 $ErrorActionPreference = 'Stop'
 
+function Resolve-PatcherJar([string]$BundleDir) {
+    $jar = Join-Path $BundleDir 'font-patcher.jar'
+    if (-not (Test-Path -LiteralPath $jar -PathType Leaf)) {
+        throw "补丁包不完整，缺少 font-patcher.jar。请完整解压最新补丁包或 GitHub 下载的 ZIP，再运行字体补丁工具.cmd。缺失位置：$jar"
+    }
+    return (Resolve-Path -LiteralPath $jar).ProviderPath
+}
+
 function Resolve-InstallationPath([string]$Value) {
     $value = [Environment]::ExpandEnvironmentVariables($Value.Trim().Trim('"').Trim("'"))
     if ([string]::IsNullOrWhiteSpace($value)) { throw '请粘贴或输入软件安装目录。' }
@@ -84,6 +92,7 @@ function New-InstallationPathForm([string]$InitialPath) {
 if ($MyInvocation.InvocationName -eq '.') { return }
 try {
     Add-Type -AssemblyName System.Windows.Forms
+    $jar = Resolve-PatcherJar $PSScriptRoot
     if ([string]::IsNullOrWhiteSpace($TargetDir)) {
         $initial = ''
         if (Test-Path -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'core')) { $initial = Split-Path $PSScriptRoot -Parent }
@@ -94,22 +103,12 @@ try {
         } finally { $form.Dispose() }
     }
     $target = Resolve-InstallationPath $TargetDir
-    $core = Join-Path $target 'core'
-    $licene = Join-Path $target 'licene'
-    $info = Join-Path $target 'info.txt'
     $javaw = Join-Path $target 'jre\bin\javaw.exe'
-    $jar = Join-Path $PSScriptRoot 'font-patcher.jar'
-
-    foreach ($path in @($core, $licene, $info, $javaw, $jar)) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "Missing required local file: $path. Select the installed application folder, not the development repo."
-        }
-    }
 
     # Uses the target application's own Java 8. No external JDK, Python or license transfer.
     # Explicit quotes are required by Windows PowerShell 5.1 Start-Process for paths with spaces.
     $argsForJava = @('-jar', ('"' + $jar + '"'), '--gui', ('"' + $target + '"'))
-    $proc = Start-Process -FilePath $javaw -ArgumentList $argsForJava -WorkingDirectory $target -Wait -PassThru
+    $proc = Start-Process -FilePath $javaw -ArgumentList $argsForJava -WorkingDirectory $target -WindowStyle Hidden -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
         throw "The patcher exited with code $($proc.ExitCode). No license was copied."
     }

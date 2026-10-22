@@ -115,12 +115,14 @@ public final class FontPatcher {
             require(folder != null && sha(decrypt(decrypt(folder, found.machine), found.pkg))
                 .equals(expected.getProperty("payload." + FOLDER_FILTER)), "字体分类补丁不完整；未修改文件");
             found.installed = pathsInstalled;
-        } else if (current.equals(expected.getProperty("legacy-ui-v4." + ENTRY))) {
+        } else if (current.equals(expected.getProperty("legacy-ui-v4." + ENTRY))
+                || current.equals(expected.getProperty("legacy-ui-005." + ENTRY))) {
+            String prefix = current.equals(expected.getProperty("legacy-ui-005." + ENTRY)) ? "legacy-ui-005." : "legacy-ui-v4.";
             for (String name : NAMES) {
                 byte[] encrypted = found.entries.get(name);
                 require(encrypted != null && sha(decrypt(decrypt(encrypted, found.machine), found.pkg))
-                    .equals(expected.getProperty("legacy-ui-v4." + name)),
-                    "旧版0.004补丁不完整或已被改动；未修改文件");
+                    .equals(expected.getProperty(prefix + name)),
+                    "旧版字体分类补丁不完整或已被改动；未修改文件");
             }
             found.installed = false;
         } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))
@@ -181,6 +183,70 @@ public final class FontPatcher {
     String check() throws Exception {
         PackageData data=inspect();
         return data.installed ? "已经安装本版字体与路径补丁。" : "版本兼容，可以安装字体与文件路径增强补丁。";
+    }
+    static final class FontChange {
+        Path destination;
+        String resource, hash, previous;
+        byte[] before;
+    }
+    List<FontChange> planFonts() throws Exception {
+        List<FontChange> changes=new ArrayList<FontChange>();
+        Path root=dir.resolve("gcodeFonts");
+        Set<String> existing=new HashSet<String>();
+        if(Files.isDirectory(root)) try(java.util.stream.Stream<Path> walk=Files.walk(root)) {
+            for(Iterator<Path> it=walk.iterator();it.hasNext();) {
+                Path p=it.next();
+                if(Files.isRegularFile(p) && p.toString().endsWith(".gfont")) existing.add(sha(Files.readAllBytes(p)));
+            }
+        }
+        try(BufferedReader in=new BufferedReader(new InputStreamReader(resource("fonts/index.tsv"),StandardCharsets.UTF_8))) {
+            String line;
+            while((line=in.readLine())!=null) {
+                String[] fields=line.split("\t",-1);
+                require(fields.length==3,"字库清单损坏");
+                FontChange change=new FontChange();change.hash=fields[0];change.previous=fields[1];
+                change.resource="fonts/gcodeFonts/"+fields[2];
+                change.destination=root.resolve(fields[2]).normalize();
+                require(change.destination.startsWith(root) && fields[2].endsWith(".gfont"),"字库路径无效");
+                require(sha(read(resource(change.resource))).equals(change.hash),"字库资源校验失败："+fields[2]);
+                if(Files.exists(change.destination)) {
+                    change.before=Files.readAllBytes(change.destination);
+                    String current=sha(change.before);
+                    if(current.equals(change.hash))continue;
+                    require(current.equals(change.previous),"同名字体内容不同，已保留原文件："+change.destination);
+                } else if(existing.contains(change.hash)) continue;
+                changes.add(change);
+            }
+        }
+        return changes;
+    }
+    String applyBundle() throws Exception {
+        List<FontChange> changes=planFonts(); // Check every font before changing core or fonts.
+        String ui=apply();
+        Path backup=dir.resolve(STATE).resolve("fonts-before-0.007");
+        List<FontChange> done=new ArrayList<FontChange>();
+        try {
+            for(FontChange change:changes) {
+                if(change.before!=null) {
+                    require(Arrays.equals(change.before,Files.readAllBytes(change.destination)),"字体在安装期间发生变化");
+                    Files.createDirectories(backup);
+                    Path saved=backup.resolve(change.previous+".gfont.bak");
+                    if(!Files.exists(saved))Files.write(saved,change.before,StandardOpenOption.CREATE_NEW);
+                    require(sha(Files.readAllBytes(saved)).equals(change.previous),"字库备份校验失败");
+                } else require(!Files.exists(change.destination),"字体在安装期间已创建");
+                Files.createDirectories(change.destination.getParent());
+                done.add(change);
+                replace(change.destination,read(resource(change.resource)));
+                require(sha(Files.readAllBytes(change.destination)).equals(change.hash),"字库安装后校验失败");
+            }
+        } catch(Exception error) {
+            for(FontChange change:done) {
+                if(change.before==null)Files.deleteIfExists(change.destination);
+                else replace(change.destination,change.before);
+            }
+            throw new IOException("字体界面已更新，但字库安装失败；本次字体改动已撤销。"+error.getMessage(),error);
+        }
+        return ui+"\n开源字库已就绪：本次新增或修复 "+changes.size()+" 套。\n包含中文 3 套、英文 55 套、符号 8 套、其他语言 4 套。\n中文分别包含 20,976 / 20,976 / 27,632 个字形。请刷新字体列表。";
     }
     String apply() throws Exception {
         PackageData data=inspect();
@@ -297,15 +363,15 @@ public final class FontPatcher {
                     state="安装前检查未通过：" + (e.getMessage()==null ? "未知错误" : e.getMessage())
                         + "\n如以前使用本工具安装过，仍可通过“回滚”恢复。";
                 }
-                Object[] options={"安装补丁","回滚","只检查","取消"};
+                Object[] options={"安装补丁和字库","回滚界面","只检查","取消"};
                 int choice=JOptionPane.showOptionDialog(null,"目标目录："+tool.dir+"\n"+state+"\n\n安装或回滚前，请退出奎享雕刻。\n更新字体界面与公共文件路径输入，保留本机授权。","字体补丁",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[2]);
                 if(choice<0||choice==3)return;
-                String result=choice==0?tool.apply():choice==1?tool.rollback():state;
+                String result=choice==0?tool.applyBundle():choice==1?tool.rollback():state;
                 JOptionPane.showMessageDialog(null,result,"字体补丁",JOptionPane.INFORMATION_MESSAGE);
             } else {
                 String result;
                 if(args[0].equals("--check"))result=tool.check();
-                else if(args[0].equals("--apply"))result=tool.apply();
+                else if(args[0].equals("--apply"))result=tool.applyBundle();
                 else if(args[0].equals("--rollback"))result=tool.rollback();
                 else throw new IOException("未知操作");
                 System.out.println(result);

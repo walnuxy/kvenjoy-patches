@@ -1,0 +1,9 @@
+
+Font name:               EMS Capitol
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Sacramento
+Designer:                Brian J. Bonislawsky, Astigmatic One Eye Typographic Institute
+Link:                    http://www.astigmatic.com
+Google font page:        https://fonts.google.com/specimen/Sacramento

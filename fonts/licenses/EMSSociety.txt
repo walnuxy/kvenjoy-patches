@@ -1,0 +1,9 @@
+
+Font name:               EMS Society
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Mrs Saint Delafield
+Designer:                Alejandro Paul, Sudtipos
+Link:                    http://www.sudtipos.com
+Google font page:        https://fonts.google.com/specimen/Mrs+Saint+Delafield

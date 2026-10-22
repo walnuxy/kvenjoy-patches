@@ -1,0 +1,8 @@
+
+Font name:               EMS Delight
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Delius
+Designer:                Natalia Raices
+Google font page:        https://fonts.google.com/specimen/Delius

@@ -1,0 +1,9 @@
+
+Font name:               EMS Little Princess
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Princess Sofia
+Designer:                Crystal Kluge, Tart Workshop
+Link:                    http://www.tartworkshop.com
+Google font page:        https://fonts.google.com/specimen/Princess+Sofia

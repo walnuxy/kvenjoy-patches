@@ -1,0 +1,8 @@
+
+Font name:               EMS Decorous Script
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Petit Formal Script
+Designer:                Impallari Type
+Google font page:        https://fonts.google.com/specimen/Petit+Formal+Script

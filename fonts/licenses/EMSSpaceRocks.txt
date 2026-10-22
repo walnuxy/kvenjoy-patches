@@ -1,0 +1,9 @@
+
+
+Font name:               EMS SpaceRocks
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Trammell Hudson
+SVG font conversion by:  Trammell Hudson
+A derivative of:         Atari Asteroids font
+Designer:                Ed Logg
+Link:                    https://trmm.net/Asteroids_font

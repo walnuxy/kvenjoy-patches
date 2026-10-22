@@ -1,0 +1,9 @@
+
+Font name:               EMS Felix
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Felipa
+Designer:                Fontstage
+Link:                    https://twitter.com/fontstage
+Google font page:        https://fonts.google.com/specimen/Felipa

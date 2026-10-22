@@ -1,0 +1,9 @@
+
+Font name:               EMS Pancakes
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Short Stack
+Designer:                James Grieshaber, Typeco
+Link:                    http://www.typeco.com
+Google font page:        https://fonts.google.com/specimen/Short+Stack

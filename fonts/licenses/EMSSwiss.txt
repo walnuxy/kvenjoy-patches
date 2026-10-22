@@ -1,0 +1,9 @@
+
+Font name:               EMS Swiss
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Created by:              Sheldon B. Michaels
+SVG font conversion by:  Windell H. Oskay
+A derivative of:         Italianno
+Designer:                Rob Leuschke, TypeSETit
+Link:                    http://www.typesetit.com
+Google font page:        https://fonts.google.com/specimen/Italianno

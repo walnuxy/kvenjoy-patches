@@ -1,0 +1,6 @@
+
+Font name:               Cutlings Geometric Round
+License:                 SIL Open Font License http://scripts.sil.org/OFL
+Designed by:             Ellen Wasbo
+Link:                    http://cutlings.wasbo.net/
+Version:				1

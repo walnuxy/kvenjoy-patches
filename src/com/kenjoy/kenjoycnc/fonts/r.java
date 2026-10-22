@@ -78,7 +78,7 @@ ChangeListener {
 
     public r() {
         this.setIconImage(Toolkit.getDefaultToolkit().getImage(L.b("download.png")));
-        this.setTitle("\u5b57\u4f53");
+        this.setTitle("字体 · 分类与喜好");
         this.setSize(1000, 559);
         this.setModal(true);
         this.getContentPane().setLayout(new GridLayout(1, 2, 0, 0));

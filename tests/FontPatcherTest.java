@@ -275,6 +275,52 @@ public final class FontPatcherTest {
         Map<String,byte[]> brokenFolder=new LinkedHashMap<String,byte[]>(original);brokenFolder.putAll(payload);brokenFolder.remove(FontPatcher.FOLDER_FILTER);
         Path brokenFolderDir=fixture(root.resolve("missing-folder-helper"),brokenFolder);
         fails(new Action(){public void run() throws Exception{new FontPatcher(brokenFolderDir).apply();}},"missing category helper rejected");
+        Map<String,byte[]> v005=new LinkedHashMap<String,byte[]>(original);
+        try (ZipFile release=new ZipFile(args[8]); ZipInputStream jar=new ZipInputStream(release.getInputStream(release.getEntry("font-patcher.jar")))) {
+            ZipEntry entry;
+            while((entry=jar.getNextEntry())!=null) {
+                if(entry.getName().startsWith("payload/")) v005.put(entry.getName().substring(8),readEntry(jar));
+            }
+        }
+        Path latest=fixture(root.resolve("font-ui-005"),v005);
+        byte[] before005=Files.readAllBytes(latest.resolve("core"));
+        FontPatcher upgrade005=new FontPatcher(latest);
+        yes(!upgrade005.inspect().installed,"0.005 eligible for favorites upgrade");
+        upgrade005.apply();yes(upgrade005.inspect().installed,"0.005 upgrades to 0.006");
+        upgrade005.rollback();yes(Arrays.equals(before005,Files.readAllBytes(latest.resolve("core"))),"0.006 rollback restores 0.005 exactly");
+        Path bundle=fixture(root.resolve("font-bundle"),original);
+        byte[] bundleLicense=Files.readAllBytes(bundle.resolve("licene")), bundleIdentity=Files.readAllBytes(bundle.resolve("info.txt"));
+        FontPatcher bundleTool=new FontPatcher(bundle);
+        java.util.List<FontPatcher.FontChange> planned=bundleTool.planFonts();
+        yes(planned.size()==70,"bundle contains 70 new open fonts only");
+        bundleTool.applyBundle();
+        yes(bundleTool.inspect().installed && bundleTool.planFonts().isEmpty(),"one action installs UI and all fonts");
+        byte[] installedCore=Files.readAllBytes(bundle.resolve("core"));
+        bundleTool.applyBundle();
+        yes(Arrays.equals(installedCore,Files.readAllBytes(bundle.resolve("core"))),"repeat bundle installation preserves core exactly");
+        FontPatcher.FontChange first=planned.get(0);
+        Path moved=first.destination.resolveSibling("user-renamed.gfont");Files.move(first.destination,moved);
+        yes(bundleTool.planFonts().isEmpty(),"identical font already in another path is skipped");
+        Files.move(moved,first.destination);
+        byte[] valid=Files.readAllBytes(first.destination);Files.write(first.destination,new byte[]{1,2,3});
+        fails(new Action(){public void run() throws Exception{bundleTool.applyBundle();}},"different user font with same path is preserved");
+        yes(Arrays.equals(Files.readAllBytes(first.destination),new byte[]{1,2,3}) && Arrays.equals(installedCore,Files.readAllBytes(bundle.resolve("core"))),"font conflict changes neither core nor font");
+        Files.write(first.destination,valid);
+        if(args.length>9) {
+            FontPatcher.FontChange oldFont=null;
+            for(FontPatcher.FontChange item:planned)if(item.destination.getFileName().toString().equals("Plot-EMSDelight.gfont"))oldFont=item;
+            Files.write(oldFont.destination,Files.readAllBytes(Paths.get(args[9])));
+            yes(bundleTool.planFonts().size()==1,"known 0.006 font eligible for preview repair");
+            bundleTool.applyBundle();
+            yes(bundleTool.planFonts().isEmpty() && Files.exists(bundle.resolve(FontPatcher.STATE+"/fonts-before-0.007/"+oldFont.previous+".gfont.bak")),"0.006 font repaired with verified backup");
+        }
+        yes(Arrays.equals(bundleLicense,Files.readAllBytes(bundle.resolve("licene"))) && Arrays.equals(bundleIdentity,Files.readAllBytes(bundle.resolve("info.txt"))),"bundle installation preserves license and identity");
         System.out.println("Synthetic regression checks passed: " + checks);
+    }
+
+    static byte[] readEntry(InputStream in) throws IOException {
+        ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
+        while((n=in.read(buf))!=-1)out.write(buf,0,n);
+        return out.toByteArray();
     }
 }
