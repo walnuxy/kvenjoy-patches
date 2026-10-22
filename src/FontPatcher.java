@@ -98,6 +98,14 @@ public final class FontPatcher {
                     "检测到不完整或被改动的字体补丁；未修改文件");
             }
             found.installed = true;
+        } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))) {
+            for (String name : NAMES) {
+                byte[] encrypted = found.entries.get(name);
+                require(encrypted != null && sha(decrypt(decrypt(encrypted, found.machine), found.pkg))
+                    .equals(expected.getProperty("legacy-ui." + name)),
+                    "旧版字体补丁不完整或已被改动；未修改文件");
+            }
+            found.installed = false;
         } else {
             require(Arrays.asList(expected.getProperty("compatible.r", "").split(",")).contains(current),
                 "字体对话框版本未知，不能覆盖；未修改文件");

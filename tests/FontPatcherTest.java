@@ -175,6 +175,36 @@ public final class FontPatcherTest {
         }}, "unknown dependent class rejected");
         yes(!Files.exists(changedDependency.resolve(".font-ui-patch")),
             "incompatible dependency causes no writes");
+        Map<String,byte[]> priorUi=new LinkedHashMap<String,byte[]>(original);
+        try (ZipFile release = new ZipFile(args[4])) {
+            try (ZipInputStream jar = new ZipInputStream(release.getInputStream(release.getEntry("font-patcher.jar")))) {
+                ZipEntry entry;
+                while ((entry=jar.getNextEntry())!=null) {
+                    if (!entry.getName().startsWith("payload/")) continue;
+                    ByteArrayOutputStream out=new ByteArrayOutputStream();
+                    byte[] buffer=new byte[8192];int n;
+                    while ((n=jar.read(buffer))!=-1) out.write(buffer,0,n);
+                    priorUi.put(entry.getName().substring("payload/".length()),out.toByteArray());
+                }
+            }
+        }
+        Path oldUiDir=fixture(root.resolve("font-ui-v1"),priorUi);
+        byte[] oldUiCore=Files.readAllBytes(oldUiDir.resolve("core"));
+        FontPatcher uiUpgrade=new FontPatcher(oldUiDir);
+        yes(!uiUpgrade.inspect().installed,"complete font UI v1 accepted for upgrade");
+        uiUpgrade.apply();
+        yes(uiUpgrade.inspect().installed,"font UI v1 upgrades to reopen fix");
+        uiUpgrade.apply();
+        yes(uiUpgrade.inspect().installed,"repeat v2 install remains a no-op");
+        uiUpgrade.rollback();
+        yes(Arrays.equals(oldUiCore,Files.readAllBytes(oldUiDir.resolve("core"))),"font UI v1 restored byte-for-byte");
+        priorUi.remove(FontPatcher.NAMES[1]);
+        Path partialUi=fixture(root.resolve("partial-ui-v1"),priorUi);
+        byte[] partialBefore=Files.readAllBytes(partialUi.resolve("core"));
+        fails(new Action(){public void run() throws Exception{new FontPatcher(partialUi).apply();}},
+              "partial font UI v1 refused for upgrade");
+        yes(Arrays.equals(partialBefore,Files.readAllBytes(partialUi.resolve("core")))
+                && !Files.exists(partialUi.resolve(".font-ui-patch")),"partial v1 refusal causes no writes");
         System.out.println("Synthetic regression checks passed: " + checks);
     }
 }
