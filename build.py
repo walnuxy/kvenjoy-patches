@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "kvenjoy-font-patcher-20261022-v3"
+VERSION = "kvenjoy-font-patcher-20261022-v4"
 
 
 def main():
@@ -31,8 +31,8 @@ def main():
         with zipfile.ZipFile(io.BytesIO(release.read("font-patcher.jar"))) as template:
             resources = {n: template.read(n) for n in template.namelist()
                          if n == "compatibility.properties" or n.startswith("payload/")}
-    if len(resources) != 7:
-        raise RuntimeError("Expected compatibility fingerprints and exactly six payload classes")
+    if len(resources) != 8:
+        raise RuntimeError("Expected compatibility fingerprints and exactly seven payload classes")
     build = ROOT / "build"
     build.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="compile-", dir=build) as tmp:
@@ -60,7 +60,8 @@ def main():
                             "FontPatcherTest", str(args.reference_core.resolve()), str(payload),
                             str(classes / "fixtures"), str(args.legacy_v2.resolve()),
                             str(ROOT / "dist/kvenjoy-font-patcher-20261022-v1.zip"),
-                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v2.zip")], check=True)
+                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v2.zip"),
+                            str(ROOT / "dist/kvenjoy-font-patcher-20261022-v3.zip")], check=True)
     print("Built", jar)
     print("Use the launcher scripts beside this JAR, or: java -jar font-patcher.jar --check <installation-folder>")
 

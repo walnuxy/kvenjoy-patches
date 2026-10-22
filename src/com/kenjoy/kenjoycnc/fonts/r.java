@@ -73,6 +73,7 @@ ChangeListener {
     /* 新增：右侧整列与滚动容器，仅本类使用。 */
     private JPanel selectedPanel;
     private JScrollPane selectedScroll;
+    private FontFolderFilter folderFilter;
 
     public r() {
         this.setIconImage(Toolkit.getDefaultToolkit().getImage(L.b("download.png")));
@@ -144,6 +145,7 @@ ChangeListener {
         this.addWindowListener(new s(this));
         /* 必须等 this.l 与 this.r 初始化后再安装，监听器会访问它们。 */
         this.installDoubleClicks();
+        this.folderFilter = new FontFolderFilter(this.l);
     }
 
     /**
@@ -298,6 +300,7 @@ ChangeListener {
             return;
         }
         this.k = defaultListModel;
+        if (this.folderFilter != null) this.folderFilter.setSource(defaultListModel);
         this.j.clear();
         if (this.p == null || this.p.fontsName == null) {
             return;

@@ -84,7 +84,7 @@ public final class FontPatcherTest {
         Path originalJar=Paths.get(args[0]), payloadJar=Paths.get(args[1]), root=Paths.get(args[2]);
         Path legacyClass=Paths.get(args[3]);
         Map<String,byte[]> original=readJar(originalJar),payload=readJar(payloadJar);
-        yes(payload.size()==6,"exactly six font/path payload classes");
+        yes(payload.size()==7,"exactly seven font/path/category payload classes");
         Path target=fixture(root.resolve("valid"),original);
         byte[] before=Files.readAllBytes(target.resolve("core"));
         byte[] license=Files.readAllBytes(target.resolve("licene"));
@@ -99,7 +99,7 @@ public final class FontPatcherTest {
         yes(!Arrays.equals(before,installed),"core changed after apply");
         yes(patcher.inspect().installed,"installed result recognized");
         Map<String,byte[]> afterEntries=FontPatcher.unzip(FontPatcher.decrypt(installed,MACHINE));
-        yes(afterEntries.size()==beforeEntries.size()+4,"only three font inner classes and one path helper added");
+        yes(afterEntries.size()==beforeEntries.size()+5,"only three font inner classes and two helpers added");
         boolean untouched=true;
         for(String name:beforeEntries.keySet()) {
             if (!name.equals(FontPatcher.ENTRY) && !name.equals(FontPatcher.COMMON) &&
@@ -230,6 +230,26 @@ public final class FontPatcherTest {
         unknownCommon.put(FontPatcher.COMMON,replaceOne(original.get(FontPatcher.COMMON)));
         Path unknownCommonDir=fixture(root.resolve("unknown-common"),unknownCommon);
         fails(new Action(){public void run() throws Exception{new FontPatcher(unknownCommonDir).apply();}},"modified common chooser rejected");
+        Map<String,byte[]> v3=new LinkedHashMap<String,byte[]>(original);
+        try (ZipFile release=new ZipFile(args[6])) {
+            try (ZipInputStream jar=new ZipInputStream(release.getInputStream(release.getEntry("font-patcher.jar")))) {
+                ZipEntry entry;
+                while((entry=jar.getNextEntry())!=null) {
+                    if(!entry.getName().startsWith("payload/"))continue;
+                    ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;
+                    while((n=jar.read(buffer))!=-1)out.write(buffer,0,n);
+                    v3.put(entry.getName().substring(8),out.toByteArray());
+                }
+            }
+        }
+        Path v3Dir=fixture(root.resolve("font-ui-v3"),v3);byte[] v3Before=Files.readAllBytes(v3Dir.resolve("core"));
+        FontPatcher v3Upgrade=new FontPatcher(v3Dir);
+        yes(!v3Upgrade.inspect().installed,"v3 is eligible for folder categories");
+        v3Upgrade.apply();yes(v3Upgrade.inspect().installed,"v3 upgrades to v4 categories");
+        v3Upgrade.rollback();yes(Arrays.equals(v3Before,Files.readAllBytes(v3Dir.resolve("core"))),"category upgrade rollback restores v3 exactly");
+        Map<String,byte[]> brokenFolder=new LinkedHashMap<String,byte[]>(original);brokenFolder.putAll(payload);brokenFolder.remove(FontPatcher.FOLDER_FILTER);
+        Path brokenFolderDir=fixture(root.resolve("missing-folder-helper"),brokenFolder);
+        fails(new Action(){public void run() throws Exception{new FontPatcher(brokenFolderDir).apply();}},"missing category helper rejected");
         System.out.println("Synthetic regression checks passed: " + checks);
     }
 }

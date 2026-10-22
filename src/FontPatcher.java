@@ -21,7 +21,8 @@ public final class FontPatcher {
         ENTRY.replace("r.class", "r$2.class"), ENTRY.replace("r.class", "r$3.class")};
     static final String COMMON = "com/kenjoy/kenjoycnc/L.class";
     static final String PATH_CHOOSER = "com/kenjoy/kenjoycnc/PathFileChooser.class";
-    static final String[] NAMES = {FONTS[0], FONTS[1], FONTS[2], FONTS[3], COMMON, PATH_CHOOSER};
+    static final String FOLDER_FILTER = "com/kenjoy/kenjoycnc/fonts/FontFolderFilter.class";
+    static final String[] NAMES = {FONTS[0], FONTS[1], FONTS[2], FONTS[3], COMMON, PATH_CHOOSER, FOLDER_FILTER};
     final Path dir;
     final Properties expected = new Properties();
     final Map<String,byte[]> replacements = new LinkedHashMap<String,byte[]>();
@@ -110,14 +111,20 @@ public final class FontPatcher {
                     Arrays.equals(decrypt(decrypt(encrypted, found.machine), found.pkg), replacements.get(name)),
                     "检测到不完整或被改动的字体补丁；未修改文件");
             }
+            byte[] folder = found.entries.get(FOLDER_FILTER);
+            require(folder != null && sha(decrypt(decrypt(folder, found.machine), found.pkg))
+                .equals(expected.getProperty("payload." + FOLDER_FILTER)), "字体分类补丁不完整；未修改文件");
             found.installed = pathsInstalled;
-        } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))) {
+        } else if (current.equals(expected.getProperty("legacy-ui." + ENTRY))
+                || current.equals(expected.getProperty("legacy-ui-v2." + ENTRY))) {
+            String prefix = current.equals(expected.getProperty("legacy-ui." + ENTRY)) ? "legacy-ui." : "legacy-ui-v2.";
             for (String name : FONTS) {
                 byte[] encrypted = found.entries.get(name);
                 require(encrypted != null && sha(decrypt(decrypt(encrypted, found.machine), found.pkg))
-                    .equals(expected.getProperty("legacy-ui." + name)),
+                    .equals(expected.getProperty(prefix + name)),
                     "旧版字体补丁不完整或已被改动；未修改文件");
             }
+            require(!found.entries.containsKey(FOLDER_FILTER), "旧版中存在未知分类组件；未修改文件");
             found.installed = false;
         } else {
             require(Arrays.asList(expected.getProperty("compatible.r", "").split(",")).contains(current),
@@ -125,6 +132,7 @@ public final class FontPatcher {
             for (int i = 1; i < FONTS.length; i++)
                 require(!found.entries.containsKey(NAMES[i]),
                     "检测到未知的字体内部类，不能安全覆盖；未修改文件");
+            require(!found.entries.containsKey(FOLDER_FILTER), "原版中存在未知分类组件；未修改文件");
             found.installed = false;
         }
         return found;

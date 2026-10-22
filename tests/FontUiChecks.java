@@ -103,6 +103,7 @@ public final class FontUiChecks {
                 }
                 local.fontListModel = left;
                 local.listFonts.setModel(left);
+                ((FontFolderFilter)get(dialog, "folderFilter")).setSource(left);
                 dialog.setModal(false);
                 dialog.setLocation(80, 80);
                 dialog.setVisible(true);
@@ -121,6 +122,46 @@ public final class FontUiChecks {
         final JScrollPane scroll = (JScrollPane)get(dialog, "selectedScroll");
         final JPanel selectedPanel = (JPanel)get(dialog, "selectedPanel");
         final JLabel header = (JLabel)get(dialog, "h");
+
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                FontFolderFilter folders = (FontFolderFilter)get(dialog, "folderFilter");
+                java.io.File root = (java.io.File)get(folders, "directory");
+                new java.io.File(root, "草书/狂草").mkdirs();
+                new java.io.File(root, "行书").mkdirs();
+                new java.io.File(root, "楷书").mkdirs();
+                new java.io.File(root, "篆书").mkdirs();
+                java.util.Map files = (java.util.Map)get(local, "b");
+                for (int i=0;i<40;i++) files.put(local.fontListModel.get(i), new java.io.File(root,"mock-"+i+".gfont"));
+                files.put(local.fontListModel.get(1),new java.io.File(root,"草书/font1.gfont"));
+                files.put(local.fontListModel.get(2),new java.io.File(root,"行书/font2.gfont"));
+                files.put(local.fontListModel.get(3),new java.io.File(root,"楷书/font3.gfont"));
+                files.put(local.fontListModel.get(4),new java.io.File(root,"草书/狂草/font4.gfont"));
+                folders.refresh();
+                javax.swing.JComboBox category = (javax.swing.JComboBox)get(folders,"category");
+                category.setSelectedItem("草书");
+                check("草书文件夹筛出两个字体并包含子目录",leftList.getModel().getSize()==2);
+                check("分类筛选不清空原始四十字体",local.fontListModel.size()==40);
+                click(leftList,0,2);
+                check("分类后双击加入对应字体而非原列表索引",right.size()==1 && ((v)right.get(0)).f.equals("mock-font-1.gfont"));
+                check("分类后加入仍创建对应优先级",priorityFields.size()==1);
+                category.setSelectedItem("楷书");
+                check("切换楷书只显示对应字体",leftList.getModel().getSize()==1 && leftList.getModel().getElementAt(0)==local.fontListModel.get(3));
+                check("切换分类保留右侧字体及优先级",right.size()==1 && priorityFields.size()==1);
+                category.setSelectedItem("篆书");
+                check("空分类正常显示零项",leftList.getModel().getSize()==0);
+                category.setSelectedItem("未分类");
+                check("字体根目录归为未分类",leftList.getModel().getSize()==36);
+                category.setSelectedItem("全部");
+                check("全部分类恢复四十字体",leftList.getModel().getSize()==40);
+                files.put(local.fontListModel.get(1),new java.io.File(root,"楷书/font1.gfont"));
+                folders.refresh();category.setSelectedItem("楷书");
+                check("文件来源目录变化后刷新分类",leftList.getModel().getSize()==2);
+                files.put(local.fontListModel.get(1),new java.io.File(root,"草书/font1.gfont"));
+                category.setSelectedItem("全部");
+                rightList.setSelectedIndex(0);remove.doClick();
+            }
+        });
 
         SwingUtilities.invokeAndWait(new Runnable() {
             @Override
