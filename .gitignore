@@ -1,0 +1,11 @@
+/build/
+__pycache__/
+*.pyc
+# Original software, local backups, configuration and credentials do not belong here.
+core
+core-*
+licene*
+info.txt
+editor.properties
+.font-ui-patch/
+*.bak
