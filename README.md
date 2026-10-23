@@ -1,5 +1,11 @@
 # 奎享雕刻字体补丁 0.008
 
+## 免注册独立版
+
+需要完整、解压即用的免注册程序，请前往 **[独立版仓库 kvenjoy-standalone](https://github.com/walnuxy/kvenjoy-standalone)**，或直接查看 **[完整发行包下载](https://github.com/walnuxy/kvenjoy-standalone/releases/latest)**。
+
+本仓库继续维护补丁和更新工具；独立版完整包由新仓库单独发布。两个仓库通过 README 链接互相关联，具体兼容范围以各版本说明为准。
+
 [下载完整安装包 0.008](dist/kvenjoy-font-patcher-20261022-0.008.zip?raw=true) · [校验值](dist/SHA256SUMS.txt) · [验证说明](VALIDATION.md)
 
 字体窗口支持中文、英文、符号、其他语言和喜好字体分类。选中字体后点击“加入喜好”，以后从“喜好字体”筛选；收藏保存在用户目录 `.KenjoyDraw/font-favorites.properties`。文件夹筛选与语言筛选共同生效，查看所有喜好时将文件夹选为“全部”。
