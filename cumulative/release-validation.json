@@ -1,0 +1,407 @@
+{
+  "version": "0.020",
+  "installerSha256": "af4e7958f531862fe1b33052df04b06759e52769e3bc815b2d3c11434518810f",
+  "installerBytes": 27512938,
+  "historicalSnapshots": 70,
+  "groups": {
+    "original": 1,
+    "font": 11,
+    "main-window-v1": 1,
+    "note": 6,
+    "ui": 50,
+    "standalone": 1
+  },
+  "runtimes": {
+    "java8": {
+      "result": "70 historical cases; 433 assertions; runtime=1.8.0_152",
+      "recoveryChecks": 6
+    },
+    "jdk21": {
+      "result": "70 historical cases; 433 assertions; runtime=21.0.12.1",
+      "recoveryChecks": 6
+    }
+  },
+  "launcherChecks": 19,
+  "vendorPayloadEntries": 489,
+  "standalonePayloadEntries": 434,
+  "cumulativeEqualsReviewedPayload": true,
+  "applicationRegressionPerRuntime": {
+    "entryAndDpi": 25,
+    "windows": 390,
+    "note": 133,
+    "responsiveAndExport": 22
+  },
+  "applicationRegressionScope": "Prior verified application payload, equivalent cumulative output; not 70 full application startups or device tests",
+  "matrix": [
+    {
+      "name": "original",
+      "mode": "vendor",
+      "fixtureSha256": "2efcd12670de8ff33b762c26b53fff236068bb1e2957ea498fee128c0eb6b221"
+    },
+    {
+      "name": "fontcap-r.orig",
+      "mode": "vendor",
+      "fixtureSha256": "2efcd12670de8ff33b762c26b53fff236068bb1e2957ea498fee128c0eb6b221"
+    },
+    {
+      "name": "fontcap-r.v2",
+      "mode": "vendor",
+      "fixtureSha256": "974d4f9985870559a0c03a2021a17f17a205da7a4fe06a2e5c623ecf5de8359a"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-0.005",
+      "mode": "vendor",
+      "fixtureSha256": "aea26c21f3cd7363c694a6c4e86e5abc5b73da2c6382ef0ebec8749c6a1e9c8c"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-0.006",
+      "mode": "vendor",
+      "fixtureSha256": "ceebecf260f111f86f13007ff49c535aed1d557d4fd609a0443b34067f3facf0"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-0.007",
+      "mode": "vendor",
+      "fixtureSha256": "76775cad6949f62045d2c17d2b365691d052242f6295ebe23af9a9b3a8afbf5b"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-0.008",
+      "mode": "vendor",
+      "fixtureSha256": "76775cad6949f62045d2c17d2b365691d052242f6295ebe23af9a9b3a8afbf5b"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-v1",
+      "mode": "vendor",
+      "fixtureSha256": "1a7723eedd3cf6d88c009769d9b5a6db670ba1fce5bf2a6ae0d7226ce5dd9ad0"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-v2",
+      "mode": "vendor",
+      "fixtureSha256": "2eba8e8e5d3e16ebb3e5778dc490f9ef3d57ae2921b4cdc412868453cf6de84c"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-v3",
+      "mode": "vendor",
+      "fixtureSha256": "2bc0f708e50877c8cfbe4b5469d83552a1f0ac54f13fb4ec1b1714a716de7ed0"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-v4",
+      "mode": "vendor",
+      "fixtureSha256": "8c6c9e8f24ecb3256b4ce8d8f800ece93dcd6d6f6b7ae105b6985e0eeed2ed1e"
+    },
+    {
+      "name": "kvenjoy-font-patcher-20261022-v5",
+      "mode": "vendor",
+      "fixtureSha256": "1f2937f565e9a1292d22769434d9d86bb1c13e42c26ec2c3ffe336163e0de9e9"
+    },
+    {
+      "name": "main-window-v1",
+      "mode": "vendor",
+      "fixtureSha256": "dc26c214b21978a24d8ccaf7ec6971259500f8cc987a3dc3728c39c4b909253a"
+    },
+    {
+      "name": "note-20261023-111450-0-before",
+      "mode": "vendor",
+      "fixtureSha256": "1fe68d5be4e63bec53e94ecf2af1fd1847ecb0ac61daa9d0c140cc8e9683e6fa"
+    },
+    {
+      "name": "note-20261023-111450-0-after",
+      "mode": "vendor",
+      "fixtureSha256": "107f856303acee73bc9e2398651c186f6117d1b7d23eb2c30efa73b9d0996b73"
+    },
+    {
+      "name": "note-20261023-115723-0-before",
+      "mode": "vendor",
+      "fixtureSha256": "a0d300c8fb62da762f917561e5a252ec106db16338d9c0ec280a05561d05f0ae"
+    },
+    {
+      "name": "note-20261023-115723-0-after",
+      "mode": "vendor",
+      "fixtureSha256": "e12b2370b47f5a277010b81fbd84b5ff09dbfb011228929e20920fba4e5c8ac9"
+    },
+    {
+      "name": "note-20261023-122659-0-before",
+      "mode": "vendor",
+      "fixtureSha256": "188361917d5c457a1a64574aafc725a681d2f13a1cdb7b8370c30c717f8b9a91"
+    },
+    {
+      "name": "note-20261023-122659-0-after",
+      "mode": "vendor",
+      "fixtureSha256": "67c6ea1514ed6436d8ec6b18652cc9f1f495f7d855e8cfb87703a57d50309ed5"
+    },
+    {
+      "name": "ui-20261023-173527-952752-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "a7551128b7327e5be88850903ba92397aa833022ba7bd6de130970c5d0815acb"
+    },
+    {
+      "name": "ui-20261023-173527-952752-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "5ea173e251a4a65026b871e14379f3e3764c238b4a15d82c0201aea65b82de5f"
+    },
+    {
+      "name": "ui-20261023-183819-901146-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "7766d9fb470e5e4586eb189987f3fb6bf217d952a704f458e7b65235cef15e6a"
+    },
+    {
+      "name": "ui-20261023-183819-901146-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "09dd68f76692f48120e61ce484367b71f7c640704127b144d4357c65aa27a782"
+    },
+    {
+      "name": "ui-20261023-191906-713537-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "d2283ac684712bcb64d762fa6802b81ced4093189d728ce860b85b16f1c15f54"
+    },
+    {
+      "name": "ui-20261023-191906-713537-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "f5c866b5a8a4bf279ab5a2fbf24e08853b274717c33e4ca9f4b8f31ae84acaee"
+    },
+    {
+      "name": "ui-20261023-192132-112578-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "ad9acde499a5f81cb1e6821231e33d415bea3893195235f05ecb3db93c549195"
+    },
+    {
+      "name": "ui-20261023-192132-112578-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "afd1e36afcc2f8143d07985b7bba11a5c551ef617a1dcf3aac337dbd5768c27f"
+    },
+    {
+      "name": "ui-20261023-201213-655767-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "07b336a6cc2cf197b7b92c78a996775284496896093636c1cb375304572b22c3"
+    },
+    {
+      "name": "ui-20261023-201213-655767-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "65312c1cc965b5c989c4b958dc5a2e91ab1e84ec757cb36f43d44844e8a2a7e4"
+    },
+    {
+      "name": "ui-20261023-201333-664340-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "3d9ef4f8c11433a4f18df479e929495cb840d7a0a33307f36ae38df0b5e0357f"
+    },
+    {
+      "name": "ui-20261023-201333-664340-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "80b71da792e271a8e038540ddd4cad400902934bd4db13c98be0d9f9204e622a"
+    },
+    {
+      "name": "ui-20261023-202315-629542-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "eba2085b484a10539aa7c1433f62d51c23d8bfa0b302ab9e985b4bfa63a49e74"
+    },
+    {
+      "name": "ui-20261023-202315-629542-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "3e284439a4d7e9d5835676d7e7ff0e4f3ce2080eb93422a1b8961f505119617d"
+    },
+    {
+      "name": "ui-20261023-202435-390514-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "ae00835b0983e8553676e55089703044c30cd38954b742fc50f13940761f0291"
+    },
+    {
+      "name": "ui-20261023-202435-390514-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "eb2b7db4ab7d2f3556692b19f5d10b3213e2ab862645f01fe427184215ed4837"
+    },
+    {
+      "name": "ui-20261023-202839-710426-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "59dc5a5c6da2d4a257a6c79e9a337503540e9ec90a94c1d471a395649035f1bb"
+    },
+    {
+      "name": "ui-20261023-202839-710426-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "d1e5090a1c5d3af8043fcdbb392dc64350939c946e269a204c5085f0427057bf"
+    },
+    {
+      "name": "ui-20261023-203256-294985-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "c1408b083fcee1c61d4e494e0a6cd726f65180e260a20a33d237361c0e2f74f0"
+    },
+    {
+      "name": "ui-20261023-203256-294985-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "e0ceaf9edd72d902df06963dcbe0ea57fbf490d5001bdf3e0bc244a1933e4c0a"
+    },
+    {
+      "name": "ui-20261023-210051-669366-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "70c90ff263f3ba136686c6ca95ad9162446703de847ae3a1c681ea0a176a7bc4"
+    },
+    {
+      "name": "ui-20261023-210051-669366-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "4f76b92ff375750bddd1f6ab3a3a60aa4f06e741ccb794fe98da27356a2398cd"
+    },
+    {
+      "name": "ui-20261023-210350-263146-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "66a91b8914f586346bd15c3e2caef0eb52bfc432a0eb0e5efc3760b76bd5491f"
+    },
+    {
+      "name": "ui-20261023-210350-263146-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "f94609541f0b3a93915b00123993bebf9273f737a60c84bc2745cb3947e583a7"
+    },
+    {
+      "name": "ui-20261023-213927-650722-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "4387cae76b2871d7d98b90799e9ba01b321a2ad7e6885a778c359b0e177c05e2"
+    },
+    {
+      "name": "ui-20261023-213927-650722-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "93bf481fce6185f6b39393d74add7209f89f88b21cd6b8b5782f14721ee9937f"
+    },
+    {
+      "name": "ui-20261023-222404-633715-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "ec05eebf2a87242f08e572b7314ea8988ec5d20cb7dfeb812dd8f7ab6e5ae79d"
+    },
+    {
+      "name": "ui-20261023-222404-633715-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "b89c830d461423640e8f4f16854d86999be5c56f8f9c3e3776508c4c301edf5e"
+    },
+    {
+      "name": "ui-20261023-222748-166385-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "e8264ca1236ddf4797f2be115387657fcd804b1970a2fe3d83c6ab67eab16a1d"
+    },
+    {
+      "name": "ui-20261023-222748-166385-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "af203918d6dfcacd31f2446458c42b6bd124482f415db45dc89353cee2883554"
+    },
+    {
+      "name": "ui-20261023-223854-612810-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "001a40b1b27981da15591b74962f428c1fe85b2550d83133478577a710818f29"
+    },
+    {
+      "name": "ui-20261023-223854-612810-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "050e06ca7b83e3e161404293690d755fc5f20087d668b9d2ee3854a8f2146947"
+    },
+    {
+      "name": "ui-20261023-224729-200636-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "8b787f02b7f22a6c96328d4a2255ed5e5b59478b2ba4e0757c730a915d1adeef"
+    },
+    {
+      "name": "ui-20261023-224729-200636-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "11ff009759da37c2883c838f9d47709a88e9a0f6355ec3104c31c6a6b530fe83"
+    },
+    {
+      "name": "ui-20261023-225611-979368-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "faa91551523c622ee9838ab29b7e2e15c86f11c0b3eb7c52630ced0594298d55"
+    },
+    {
+      "name": "ui-20261023-225611-979368-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "041e5326ae3a5e997f72c68aa6440f93c11b39143915aad31cf422ba566ca722"
+    },
+    {
+      "name": "ui-20261023-225836-804490-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "d84223b73ad595314e3a998df7055dad72b4e658e0aaf163cec80254ef14a806"
+    },
+    {
+      "name": "ui-20261023-225836-804490-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "7e4552169cdb16a5d7dd05196a0d26be48ead002c760e2c1c92d9a52d0f497ff"
+    },
+    {
+      "name": "ui-20261024-000458-805828-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "6baca8c1aafcc77f6aeb12353a97da79954e337e125e41608908debfa9a162a9"
+    },
+    {
+      "name": "ui-20261024-000458-805828-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "3b05f6ff6770487438443fc169f7d16f974d94d58dfbd3b8621ec7a30145f70f"
+    },
+    {
+      "name": "ui-20261024-001231-169985-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "9b09a91b1f35af1768f8db61cfc27312feb6b5beeb472a27889bced3cc1e0d76"
+    },
+    {
+      "name": "ui-20261024-001231-169985-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "9e966843773fba974dc84f6f26341beb90f2bf5ae46f696202066a62136cc080"
+    },
+    {
+      "name": "ui-20261024-003005-805336-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "adfb30e5d658bdd8f34800361c003870512a6785da8921636ab8f85c6b3fdb22"
+    },
+    {
+      "name": "ui-20261024-003005-805336-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "87078a230750c87528e99f09e2b381f09b088c75ca2833be03c778064cec4327"
+    },
+    {
+      "name": "ui-20261024-003241-237808-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "7d908b086c50f3749eedb86dbdbff2c2c696c0c8e7db82aa27e85b9466c3964e"
+    },
+    {
+      "name": "ui-20261024-003241-237808-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "7b5afb483493d24d4d85913e65d19ea51f5d03acae783baf7bb1eb7318cba1e3"
+    },
+    {
+      "name": "ui-20261024-003657-669272-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "51d26aed620e1d9848dfe7a4dc53c6c2bdd718859998bd62a4135ca43945f1d8"
+    },
+    {
+      "name": "ui-20261024-003657-669272-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "dca98fa1155975e17b988b174b8f58e31884a99bba03582061c665ee64b58c44"
+    },
+    {
+      "name": "ui-20261024-003736-648393-core-before",
+      "mode": "vendor",
+      "fixtureSha256": "a4123e25645077f71536d6e76ea7ad85c4f1bb7963102bf05928595128c21249"
+    },
+    {
+      "name": "ui-20261024-003736-648393-core-after",
+      "mode": "vendor",
+      "fixtureSha256": "25880cec518aee399af5e7724e9b3020838c1a5c08ef1c5fcfe480a2331a9d07"
+    },
+    {
+      "name": "standalone-0.019",
+      "mode": "standalone",
+      "fixtureSha256": "bbb56fe008bad3261a8aa8ce10fa120cefd66070dc85c0a17d69f89f6bf87059"
+    }
+  ],
+  "publicRebuild": {
+    "passed": true,
+    "allEntriesIdentical": true,
+    "entries": 1091,
+    "sourceSha256": "af4e7958f531862fe1b33052df04b06759e52769e3bc815b2d3c11434518810f",
+    "rebuildSha256": "25e9449ede1fc6160cf4b9238931fb8e18ecee3d9f6c6cbf087315334335ecee"
+  },
+  "standaloneApplicationRegression": {
+    "passed": true,
+    "runtime": "JDK21.0.12.1+1",
+    "runtimeScope": "Full JDK of the same version; standalone trimmed runtime fails before main only on hidden desktop, including -version",
+    "counts": {
+      "all-windows-checks.tsv": 384,
+      "checks.tsv": 133,
+      "production-checks.tsv": 6,
+      "responsive-checks.tsv": 22,
+      "standalone-checks.tsv": 13
+    },
+    "sourceAppUnchanged": true
+  }
+}
