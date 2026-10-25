@@ -1,0 +1,8 @@
+first_dialog_operable_ms=397.19
+reopen=0 operable_ms=4.80
+reopen=0 list_ready_ms=623.53
+reopen=1 operable_ms=10.12
+reopen=1 list_ready_ms=641.79
+reopen=2 operable_ms=3.93
+reopen=2 list_ready_ms=816.98
+COMPLETE fontDialogTiming

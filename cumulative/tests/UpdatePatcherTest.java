@@ -27,7 +27,7 @@ public final class UpdatePatcherTest {
         for(String line:Files.readAllLines(Paths.get(args[0]),StandardCharsets.UTF_8)){
             String[] f=line.split("\t");String label=f[0],mode=f[1];Path source=Paths.get(f[2]);if(label.equals("original"))baseline=source;
             Map<String,byte[]> plain=FontPatcher.unzip(Files.readAllBytes(source));Path root=fixture(work.resolve(label),mode,plain);Map<String,String> before=snapshot(root);
-            UpdatePatcher tool=new UpdatePatcher(root);yes(tool.check().contains("0.023"),label+" recognized");UpdatePatcher.Data data=tool.inspect();Map<String,byte[]> encodedBefore=data.entries;
+            UpdatePatcher tool=new UpdatePatcher(root);yes(tool.check().contains("0.024"),label+" recognized");UpdatePatcher.Data data=tool.inspect();Map<String,byte[]> encodedBefore=data.entries;
             tool.apply(false);data=tool.inspect();final UpdatePatcher.Data updated=data;yes(data.payload.keySet().stream().allMatch(n->{try{return Arrays.equals(updated.payload.get(n),n.endsWith(".class")?tool.decode(updated,updated.entries.get(n)):updated.entries.get(n));}catch(Exception e){throw new RuntimeException(e);}}),label+" latest payload");
             boolean untouched=true;for(String n:encodedBefore.keySet())if(!data.payload.containsKey(n)&&!Arrays.equals(encodedBefore.get(n),data.entries.get(n)))untouched=false;yes(untouched,label+" unrelated entries unchanged");
             Path record=root.resolve(UpdatePatcher.STATE+"/receipt.properties");byte[] receipt=Files.readAllBytes(record);Map<String,String> installed=snapshot(root);tool.apply(false);yes(Arrays.equals(receipt,Files.readAllBytes(record))&&installed.equals(snapshot(root)),label+" repeat apply preserves backup");

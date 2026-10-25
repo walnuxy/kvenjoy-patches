@@ -25,6 +25,7 @@ public final class ProductionHooks {
             ApplicationTheme.install(frame);
             ResponsiveWorkspace.install(app);
             MachinePanelWorkflow.install(app);
+            Class.forName("com.kenjoy.kenjoycnc.connection.ConnectionService").getMethod("install",Object.class).invoke(null,app);
             NativeDpi.tree(frame.getRootPane());
             style.apply(app);
             MachinePanelWorkflow.refresh(app);

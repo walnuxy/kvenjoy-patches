@@ -1,0 +1,9 @@
+first_dialog_operable_ms=398.59
+FONT_CATALOG scan_ns=21962000 parse_ns=89497900 ui_ns=3696800
+reopen=0 operable_ms=9.15
+reopen=0 list_ready_ms=18.16
+reopen=1 operable_ms=3.28
+reopen=1 list_ready_ms=8.34
+reopen=2 operable_ms=3.54
+reopen=2 list_ready_ms=8.35
+COMPLETE fontDialogTiming
