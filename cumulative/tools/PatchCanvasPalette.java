@@ -25,7 +25,7 @@ public final class PatchCanvasPalette implements Opcodes {
             }
             changed.add(m.name+m.desc);
         }
-        if(colors!=7||changed.size()!=2)throw new IllegalStateException("Unexpected drawing hooks: "+colors+" "+changed);
+        if(colors!=8||changed.size()!=2)throw new IllegalStateException("Unexpected drawing hooks: "+colors+" "+changed);
         MethodNode paint=new MethodNode(ASM8,ACC_PUBLIC,"paint","(Ljava/awt/Graphics;)V",null,null);
         paint.visitCode();paint.visitVarInsn(ALOAD,1);paint.visitVarInsn(ALOAD,0);paint.visitMethodInsn(INVOKESTATIC,HELPER,"prepare","(Ljava/awt/Graphics;Ljavax/swing/JComponent;)Ljava/awt/Graphics;",false);paint.visitVarInsn(ASTORE,2);
         Label start=new Label(),end=new Label(),handler=new Label();paint.visitTryCatchBlock(start,end,handler,null);paint.visitLabel(start);
