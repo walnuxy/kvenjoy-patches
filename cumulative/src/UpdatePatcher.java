@@ -132,7 +132,7 @@ public final class UpdatePatcher {
             Data data=inspect();List<Change> changes=plan(data,fonts);if(changes.isEmpty())return "已是最新补丁，无需重复安装。";
             Properties r=new Properties();r.setProperty("version",metadata.getProperty("version"));r.setProperty("status","prepared");r.setProperty("count",String.valueOf(changes.size()));
             Path transaction=state.resolve("txn-"+new UUID(FontPatcher.RANDOM.nextLong(),FontPatcher.RANDOM.nextLong()).toString());Files.createDirectory(transaction);r.setProperty("transaction",transaction.getFileName().toString());
-            if(oldReceipt!=null)write(transaction.resolve("previous-receipt.properties"),oldReceipt);
+            if(oldReceipt!=null){write(transaction.resolve("previous-receipt.properties"),oldReceipt);r.setProperty("previousReceiptSha",sha(oldReceipt));}
             for(int i=0;i<changes.size();i++){
                 Change c=changes.get(i);r.setProperty(i+".path",c.relative);r.setProperty(i+".before",sha(c.before));r.setProperty(i+".after",sha(c.after));
                 if(c.before!=null)write(transaction.resolve(i+".before"),c.before);
@@ -152,17 +152,28 @@ public final class UpdatePatcher {
     String rollback()throws Exception{
         Path state=state();
         try(FileChannel lock=FileChannel.open(state.resolve("update.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);FileLock held=lock.tryLock()){
-            require(held!=null,"另一更新或回滚正在进行");Path record=state.resolve("receipt.properties");require(Files.isRegularFile(record),"没有本补丁的回滚记录");Properties r=receipt(record);
+            require(held!=null,"另一更新或回滚正在进行");Path record=state.resolve("receipt.properties");require(Files.isRegularFile(record),"没有本补丁的回滚记录");byte[] originalReceipt=bytes(record);Properties r=receipt(record);
             String id=r.getProperty("transaction","");require(id.matches("txn-[a-f0-9-]{36}"),"回滚记录损坏");Path transaction=state.resolve(id);int count=Integer.parseInt(r.getProperty("count"));
-            List<Change> changes=new ArrayList<Change>();
+            List<Change> changes=new ArrayList<Change>();List<byte[]> installed=new ArrayList<byte[]>();
             for(int i=0;i<count;i++){
                 Path p=target(r.getProperty(i+".path"));String current=sha(bytes(p)),before=r.getProperty(i+".before"),after=r.getProperty(i+".after");
                 require(current.equals(before)||current.equals(after),"安装后有新修改，停止回滚："+p.getFileName());
-                byte[] backup=before.equals("absent")?null:bytes(transaction.resolve(i+".before"));require(sha(backup).equals(before),"备份校验失败");changes.add(new Change(r.getProperty(i+".path"),backup,null));
+                byte[] backup=before.equals("absent")?null:bytes(transaction.resolve(i+".before"));require(sha(backup).equals(before),"备份校验失败");changes.add(new Change(r.getProperty(i+".path"),backup,null));installed.add(bytes(p));
             }
-            for(int i=changes.size()-1;i>=0;i--)write(target(changes.get(i).relative),changes.get(i).before);
             byte[] prior=bytes(transaction.resolve("previous-receipt.properties"));
-            if(prior!=null)write(record,prior);else{r.setProperty("status","rolled-back");save(record,r);}
+            require(sha(prior).equals(r.getProperty("previousReceiptSha",prior==null?"absent":"missing")),"上次收据备份校验失败");
+            int attempted=changes.size();
+            try{
+                for(int i=changes.size()-1;i>=0;i--){beforeWrite.run(i);require(sha(bytes(target(changes.get(i).relative))).equals(sha(installed.get(i))),"文件在回滚期间发生变化："+changes.get(i).relative);attempted=i;write(target(changes.get(i).relative),changes.get(i).before);require(sha(bytes(target(changes.get(i).relative))).equals(sha(changes.get(i).before)),"回滚后校验失败："+changes.get(i).relative);}
+                attempted=0;
+                if(prior!=null)write(record,prior);else{r.setProperty("status","rolled-back");save(record,r);}
+            }catch(Exception error){
+                boolean restored=true;
+                for(int i=attempted;i<changes.size();i++)try{write(target(changes.get(i).relative),installed.get(i));}catch(Exception compensation){error.addSuppressed(compensation);restored=false;}
+                try{write(record,originalReceipt);}catch(Exception compensation){error.addSuppressed(compensation);restored=false;}
+                if(!restored)try{r.setProperty("status","rollback-partial");save(record,r);}catch(Exception marker){error.addSuppressed(marker);}
+                throw error;
+            }
             return "已精确恢复本次更新前的软件、启动选项和本次改动的字库。";
         }
     }

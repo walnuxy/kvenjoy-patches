@@ -9,6 +9,7 @@ import javax.swing.border.LineBorder;
 /** Compact trial-only window chrome. Business menus and close handler remain intact. */
 public final class TrialChrome {
     private static AWTEventListener pending;
+    private static final String TRANSITION="trial.chrome.transition";
     private TrialChrome(){}
     /** Capture the main JFrame before its first peer is created; do not dispose/recreate it. */
     public static void arm(){
@@ -31,7 +32,7 @@ public final class TrialChrome {
         frame.getRootPane().setWindowDecorationStyle(JRootPane.NONE);
         frame.getRootPane().putClientProperty("trial.chrome",Boolean.TRUE);
         frame.getRootPane().putClientProperty("trial.normalBounds",new Rectangle(frame.getBounds()));
-        frame.addComponentListener(new ComponentAdapter(){private void remember(){if(frame.getExtendedState()==JFrame.NORMAL)frame.getRootPane().putClientProperty("trial.normalBounds",new Rectangle(frame.getBounds()));}public void componentMoved(ComponentEvent e){remember();}public void componentResized(ComponentEvent e){remember();round(frame);}});
+        frame.addComponentListener(new ComponentAdapter(){private void remember(){if(frame.getExtendedState()==JFrame.NORMAL&&!Boolean.TRUE.equals(frame.getRootPane().getClientProperty(TRANSITION)))frame.getRootPane().putClientProperty("trial.normalBounds",new Rectangle(frame.getBounds()));}public void componentMoved(ComponentEvent e){remember();}public void componentResized(ComponentEvent e){remember();round(frame);}});
         frame.addWindowStateListener(e->round(frame));
         final JMenuBar bar=frame.getJMenuBar();
         int height=bar.getPreferredSize().height;
@@ -66,6 +67,7 @@ public final class TrialChrome {
         Rectangle work=workArea(frame);
         int width=Math.max(1,(int)Math.round(work.width*0.94)),height=Math.max(1,(int)Math.round(work.height*0.94));
         Rectangle normal=new Rectangle(work.x+(work.width-width)/2,work.y+(work.height-height)/2,width,height);
+        changing(frame);
         frame.setExtendedState(JFrame.NORMAL);
         frame.setBounds(normal);
         frame.getRootPane().putClientProperty("trial.normalBounds",new Rectangle(normal));
@@ -79,9 +81,10 @@ public final class TrialChrome {
     }
     public static void toggleMaximize(JFrame frame){
         if((frame.getExtendedState()&JFrame.MAXIMIZED_BOTH)!=0)restore(frame);
-        else{frame.getRootPane().putClientProperty("trial.normalBounds",new Rectangle(frame.getBounds()));frame.setMaximizedBounds(workArea(frame));frame.setExtendedState(JFrame.MAXIMIZED_BOTH);}
+        else{frame.getRootPane().putClientProperty("trial.normalBounds",new Rectangle(frame.getBounds()));changing(frame);frame.setMaximizedBounds(workArea(frame));frame.setExtendedState(JFrame.MAXIMIZED_BOTH);}
     }
-    private static void restore(JFrame frame){Object normal=frame.getRootPane().getClientProperty("trial.normalBounds");frame.setExtendedState(JFrame.NORMAL);if(normal instanceof Rectangle)frame.setBounds(new Rectangle((Rectangle)normal));}
+    private static void restore(JFrame frame){Object normal=frame.getRootPane().getClientProperty("trial.normalBounds");changing(frame);frame.setExtendedState(JFrame.NORMAL);if(normal instanceof Rectangle)frame.setBounds(new Rectangle((Rectangle)normal));}
+    private static void changing(JFrame frame){frame.getRootPane().putClientProperty(TRANSITION,Boolean.TRUE);EventQueue.invokeLater(()->frame.getRootPane().putClientProperty(TRANSITION,Boolean.FALSE));}
     static void close(JFrame frame){frame.dispatchEvent(new WindowEvent(frame,WindowEvent.WINDOW_CLOSING));}
     private static final Color CLOSE_HOVER=new Color(0xC42B1C),CLOSE_PRESSED=new Color(0xB22618);
     private static final class CaptionButton extends JButton {

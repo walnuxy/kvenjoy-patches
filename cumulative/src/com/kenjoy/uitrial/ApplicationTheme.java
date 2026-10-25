@@ -5,6 +5,7 @@ import com.formdev.flatlaf.FlatLaf;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
+import java.awt.geom.RoundRectangle2D;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.border.*;
@@ -13,6 +14,7 @@ import javax.swing.text.JTextComponent;
 /** Application-wide presentation. Never invokes actions or changes document/device models. */
 public final class ApplicationTheme {
     private static final String MARK="modernization.applicationTheme";
+    private static final String ROUNDED="modernization.roundedDialog";
     private static final Font FONT=new Font("Microsoft YaHei UI",Font.PLAIN,NativeDpi.px(12));
     private static final Font BOLD=FONT.deriveFont(Font.BOLD);
     private static final Border CELL_EDGE=new LineBorder(UiPalette.HAIRLINE),CELL_SELECTED=new LineBorder(UiPalette.ACCENT);
@@ -101,6 +103,7 @@ public final class ApplicationTheme {
         return false;
     }
     private static void schedule(Component child){
+        if(!SwingUtilities.isEventDispatchThread()){EventQueue.invokeLater(()->schedule(child));return;}
         // Renderer stamps and combo delegate internals are handled by their owners.
         for(Container p=child.getParent();p!=null;p=p.getParent())if(p instanceof CellRendererPane||p instanceof JComboBox)return;
         for(Component c:pending)if(c instanceof Container&&SwingUtilities.isDescendingFrom(child,(Container)c))return;
@@ -118,6 +121,7 @@ public final class ApplicationTheme {
     }
     public static void applyWindow(Window w){
         if(w instanceof JDialog){ensureDecoratedDialog((JDialog)w);NativeDpi.dialog((JDialog)w);}
+        else if(w instanceof JFrame&&w!=main)ensureDecoratedFrame((JFrame)w);
         if(w instanceof RootPaneContainer){
             JRootPane root=((RootPaneContainer)w).getRootPane();root.putClientProperty(MARK,Boolean.TRUE);
             applyTree(root);
@@ -125,7 +129,34 @@ public final class ApplicationTheme {
             if(w instanceof JDialog)compactDialog((JDialog)w);
         }
         w.setBackground(UiPalette.SURFACE);
+        if(w instanceof JDialog||w instanceof JFrame&&w!=main)roundWindow(w);
         w.repaint();
+    }
+    private static void roundWindow(Window window){
+        if(!(window instanceof RootPaneContainer)||!window.getGraphicsConfiguration().getDevice().isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSPARENT))return;
+        if(window instanceof JDialog&&!((JDialog)window).isUndecorated()||window instanceof JFrame&&!((JFrame)window).isUndecorated())return;
+        JRootPane root=((RootPaneContainer)window).getRootPane();
+        if(!Boolean.TRUE.equals(root.getClientProperty(ROUNDED))){
+            root.putClientProperty(ROUNDED,Boolean.TRUE);
+            window.addComponentListener(new ComponentAdapter(){@Override public void componentResized(ComponentEvent event){shapeWindow(window);}});
+        }
+        shapeWindow(window);
+    }
+    private static void shapeWindow(Window window){
+        if(window.getWidth()>0&&window.getHeight()>0)window.setShape(new RoundRectangle2D.Double(0,0,window.getWidth(),window.getHeight(),20,20));
+    }
+    private static void ensureDecoratedFrame(JFrame frame){
+        JRootPane root=frame.getRootPane();
+        if(root==null)return;
+        if(!frame.isUndecorated()||root.getWindowDecorationStyle()==JRootPane.NONE){
+            boolean vis=frame.isVisible(),disp=frame.isDisplayable();
+            if(vis)frame.setVisible(false);
+            if(disp)frame.dispose();
+            frame.setUndecorated(true);
+            root.setWindowDecorationStyle(JRootPane.FRAME);
+            root.updateUI();
+            if(vis)frame.setVisible(true);
+        }
     }
     private static void ensureDecoratedDialog(JDialog d){
         JRootPane root=d.getRootPane();

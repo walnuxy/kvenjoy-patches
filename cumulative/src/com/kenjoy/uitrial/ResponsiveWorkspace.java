@@ -30,19 +30,17 @@ public final class ResponsiveWorkspace {
     private MouseWheelListener[] originalWheels=new MouseWheelListener[0];
     private boolean updating,stacked;
     private Dimension extent=new Dimension();
-    private Point panOrigin;
+    private Point panOrigin,panView;
     private final PropertyChangeListener canvasGeometry=e->{if(!updating)schedule();};
     private final MouseWheelListener manualWheel=this::wheel;
     private final MouseAdapter middlePan=new MouseAdapter(){
-        public void mousePressed(MouseEvent e){if(SwingUtilities.isMiddleMouseButton(e))panOrigin=SwingUtilities.convertPoint(canvas,e.getPoint(),viewportPane.getViewport());}
-        public void mouseReleased(MouseEvent e){if(SwingUtilities.isMiddleMouseButton(e))panOrigin=null;}
+        public void mousePressed(MouseEvent e){if(SwingUtilities.isMiddleMouseButton(e)){panOrigin=e.getLocationOnScreen();panView=viewportPane.getViewport().getViewPosition();}}
+        public void mouseReleased(MouseEvent e){if(SwingUtilities.isMiddleMouseButton(e)){panOrigin=null;panView=null;}}
         public void mouseDragged(MouseEvent e){
-            if(!SwingUtilities.isMiddleMouseButton(e)||panOrigin==null)return;
-            Point now=SwingUtilities.convertPoint(canvas,e.getPoint(),viewportPane.getViewport());
-            JScrollBar h=viewportPane.getHorizontalScrollBar(),v=viewportPane.getVerticalScrollBar();
-            h.setValue(h.getValue()+(panOrigin.x-now.x));
-            v.setValue(v.getValue()+(panOrigin.y-now.y));
-            panOrigin=now;
+            if((e.getModifiersEx()&InputEvent.BUTTON2_DOWN_MASK)==0||panOrigin==null)return;
+            Point now=e.getLocationOnScreen();
+            viewportPane.getHorizontalScrollBar().setValue(panView.x+panOrigin.x-now.x);
+            viewportPane.getVerticalScrollBar().setValue(panView.y+panOrigin.y-now.y);
         }
     };
     private void wheel(MouseWheelEvent e){
@@ -70,9 +68,10 @@ public final class ResponsiveWorkspace {
     private ResponsiveWorkspace(Object app,JFrame frame)throws Exception{
         this.app=app;this.frame=frame;
         viewportPane=(JScrollPane)app.getClass().getMethod("b").invoke(app);
-        leftPane=ancestor((Component)UiStyle.field(app,"f"));
+        JComponent left=(JComponent)UiStyle.field(app,"f");leftPane=ancestor(left);
         device=(JComponent)UiStyle.field(app,"y");rightPane=ancestor(device);
         rotations=(JComponent)UiStyle.field(app,"G");
+        for(Component item:rotations.getComponents())if(item instanceof JButton){JButton button=(JButton)item;String label=button.getText();if(label!=null&&label.startsWith("旋转")){button.setText("加工方向 "+label.substring(2));button.setToolTipText("改变画布与输出刀路的加工方向；与显示缩放不同");}}
         timer=new javax.swing.Timer(55,e->adapt());timer.setRepeats(false);
         Container centerParent=viewportPane.getParent();centerParent.remove(viewportPane);workspace.add(viewportPane,BorderLayout.CENTER);
         footer.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(1,0,0,0,UiPalette.HAIRLINE),new EmptyBorder(2,6,2,6)));
@@ -89,6 +88,10 @@ public final class ResponsiveWorkspace {
         Container prior=rotations.getParent();prior.remove(rotations);prior.revalidate();rotations.setPreferredSize(null);
         footer.add(zoomTools,BorderLayout.WEST);footer.add(rotations,BorderLayout.EAST);workspace.add(footer,BorderLayout.SOUTH);centerParent.add(workspace,BorderLayout.CENTER);
         // Keep the device controls at their natural height, with vertical scrolling at small sizes.
+        // The vendor's vertical flow layout starts a new column when the window is short.
+        // A scrolling sidebar must keep one column regardless of viewport height.
+        left.setLayout(new SidebarStack());
+        leftPane.setViewportView(new SidebarColumn(left));
         rightPane.setViewportView(new SidebarColumn(device));
         JPanel jog=(JPanel)UiStyle.field(device,"l");if(jog.getLayout()==null)jog.setLayout(new AnchoredControls(jog));
         Component connection=device.getComponentCount()>0?device.getComponent(0):null;
@@ -112,8 +115,20 @@ public final class ResponsiveWorkspace {
     private static JScrollPane ancestor(Component c){JScrollPane pane=(JScrollPane)SwingUtilities.getAncestorOfClass(JScrollPane.class,c);if(pane==null)throw new IllegalStateException("Missing sidebar scroll pane");return pane;}
     private static void edt(){if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("EDT required");}
     private void schedule(){if(!updating)timer.restart();}
-    public void refresh(){edt();attach();schedule();}
-    private void detach(){if(canvas!=null){canvas.removePropertyChangeListener("preferredSize",canvasGeometry);canvas.removeMouseWheelListener(manualWheel);canvas.removeMouseListener(middlePan);canvas.removeMouseMotionListener(middlePan);for(MouseWheelListener listener:originalWheels)canvas.addMouseWheelListener(listener);}originalWheels=new MouseWheelListener[0];canvas=null;access=null;host=null;currentMode=null;panOrigin=null;}
+    public void refresh(){edt();restoreShell();if(((BorderLayout)workspace.getLayout()).getLayoutComponent(BorderLayout.CENTER)==viewportPane)attach();else{detach();updateControls();}schedule();}
+    private void restoreShell(){
+        Container content=frame.getContentPane();
+        Component current=((BorderLayout)content.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        if(current!=null&&current!=workspace){
+            content.remove(current);
+            Component prior=((BorderLayout)workspace.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+            if(prior!=null)workspace.remove(prior);
+            workspace.add(current,BorderLayout.CENTER);
+            content.add(workspace,BorderLayout.CENTER);
+            content.revalidate();
+        }
+    }
+    private void detach(){if(canvas!=null){canvas.removePropertyChangeListener("preferredSize",canvasGeometry);canvas.removeMouseWheelListener(manualWheel);canvas.removeMouseListener(middlePan);canvas.removeMouseMotionListener(middlePan);for(MouseWheelListener listener:originalWheels)canvas.addMouseWheelListener(listener);}originalWheels=new MouseWheelListener[0];canvas=null;access=null;host=null;currentMode=null;panOrigin=null;panView=null;}
     private void attach(){
         if(updating)return;Component view=viewportPane.getViewport().getView();if((view==host&&host!=null)||(view==canvas&&access==null))return;
         updating=true;
@@ -196,6 +211,18 @@ public final class ResponsiveWorkspace {
     private static final class SidebarColumn extends JPanel implements Scrollable {
         SidebarColumn(JComponent child){super(new BorderLayout());setBackground(UiPalette.SURFACE);add(child,BorderLayout.NORTH);}
         public Dimension getPreferredScrollableViewportSize(){return getPreferredSize();}public int getScrollableUnitIncrement(Rectangle r,int o,int d){return 24;}public int getScrollableBlockIncrement(Rectangle r,int o,int d){return Math.max(24,r.height-48);}public boolean getScrollableTracksViewportWidth(){return true;}public boolean getScrollableTracksViewportHeight(){return false;}
+    }
+    private static final class SidebarStack implements LayoutManager {
+        public void addLayoutComponent(String name,Component component){}public void removeLayoutComponent(Component component){}
+        public Dimension preferredLayoutSize(Container parent){return measure(parent,false);}
+        public Dimension minimumLayoutSize(Container parent){return measure(parent,true);}
+        private Dimension measure(Container parent,boolean minimum){Insets in=parent.getInsets();int width=0,height=in.top+in.bottom;
+            for(Component child:parent.getComponents())if(child.isVisible()){Dimension d=minimum?child.getMinimumSize():child.getPreferredSize();width=Math.max(width,d.width);height+=d.height+NativeDpi.px(5);}
+            return new Dimension(width+in.left+in.right+NativeDpi.px(10),height);
+        }
+        public void layoutContainer(Container parent){Insets in=parent.getInsets();int gap=NativeDpi.px(5),y=in.top+gap,width=Math.max(1,parent.getWidth()-in.left-in.right-gap*2);
+            for(Component child:parent.getComponents())if(child.isVisible()){int height=child.getPreferredSize().height;child.setBounds(in.left+gap,y,width,height);y+=height+gap;}
+        }
     }
     /** Resize existing absolute-position device controls; does not create or activate any action. */
     private static final class AnchoredControls implements LayoutManager {

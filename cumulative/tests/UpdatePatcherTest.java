@@ -27,7 +27,7 @@ public final class UpdatePatcherTest {
         for(String line:Files.readAllLines(Paths.get(args[0]),StandardCharsets.UTF_8)){
             String[] f=line.split("\t");String label=f[0],mode=f[1];Path source=Paths.get(f[2]);if(label.equals("original"))baseline=source;
             Map<String,byte[]> plain=FontPatcher.unzip(Files.readAllBytes(source));Path root=fixture(work.resolve(label),mode,plain);Map<String,String> before=snapshot(root);
-            UpdatePatcher tool=new UpdatePatcher(root);yes(tool.check().contains("0.020"),label+" recognized");UpdatePatcher.Data data=tool.inspect();Map<String,byte[]> encodedBefore=data.entries;
+            UpdatePatcher tool=new UpdatePatcher(root);yes(tool.check().contains("0.021"),label+" recognized");UpdatePatcher.Data data=tool.inspect();Map<String,byte[]> encodedBefore=data.entries;
             tool.apply(false);data=tool.inspect();final UpdatePatcher.Data updated=data;yes(data.payload.keySet().stream().allMatch(n->{try{return Arrays.equals(updated.payload.get(n),n.endsWith(".class")?tool.decode(updated,updated.entries.get(n)):updated.entries.get(n));}catch(Exception e){throw new RuntimeException(e);}}),label+" latest payload");
             boolean untouched=true;for(String n:encodedBefore.keySet())if(!data.payload.containsKey(n)&&!Arrays.equals(encodedBefore.get(n),data.entries.get(n)))untouched=false;yes(untouched,label+" unrelated entries unchanged");
             Path record=root.resolve(UpdatePatcher.STATE+"/receipt.properties");byte[] receipt=Files.readAllBytes(record);Map<String,String> installed=snapshot(root);tool.apply(false);yes(Arrays.equals(receipt,Files.readAllBytes(record))&&installed.equals(snapshot(root)),label+" repeat apply preserves backup");
@@ -38,6 +38,16 @@ public final class UpdatePatcherTest {
         tool.beforeWrite=i->{if(i==1)throw new java.io.IOException("simulated options write failure");};fails(()->tool.apply(false),"core/options write failure propagated");yes(before.equals(snapshot(root)),"partial apply compensates exact bytes");tool.beforeWrite=i->{};
         tool.apply(false);String options=new String(Files.readAllBytes(root.resolve(UpdatePatcher.OPTIONS)),StandardCharsets.UTF_8);yes(options.contains("-Xmx768m")&&options.contains("custom.option=keep")&&options.contains("processingDpi=144"),"unrelated options and previous custom processing DPI retained");
         byte[] receipt=Files.readAllBytes(root.resolve(UpdatePatcher.STATE+"/receipt.properties"));tool.beforeWrite=i->{throw new java.io.IOException("repeat apply must not write");};tool.apply(false);yes(Arrays.equals(receipt,Files.readAllBytes(root.resolve(UpdatePatcher.STATE+"/receipt.properties"))),"repeat apply does not enter mutation branch");tool.beforeWrite=i->{};
+        Map<String,String> installed=snapshot(root);
+        tool.beforeWrite=i->{if(i==0)throw new java.io.IOException("simulated rollback write failure");};
+        fails(tool::rollback,"rollback write failure propagated");
+        yes(installed.equals(snapshot(root))&&Arrays.equals(receipt,Files.readAllBytes(root.resolve(UpdatePatcher.STATE+"/receipt.properties"))),"partial rollback compensates exact installed bytes and receipt");
+        byte[] installedCore=Files.readAllBytes(root.resolve("core"));
+        tool.beforeWrite=i->{if(i==0)Files.write(root.resolve("core"),new byte[]{4,5,6});};
+        fails(tool::rollback,"rollback detects target changed after preflight");
+        yes(Arrays.equals(Files.readAllBytes(root.resolve("core")),new byte[]{4,5,6})&&Arrays.equals(receipt,Files.readAllBytes(root.resolve(UpdatePatcher.STATE+"/receipt.properties"))),"rollback preserves concurrent target edit");
+        Files.write(root.resolve("core"),installedCore);
+        tool.beforeWrite=i->{};
         Files.write(root.resolve(UpdatePatcher.OPTIONS),"-Xmx999m".getBytes(StandardCharsets.UTF_8));fails(tool::rollback,"rollback refuses newer startup options");Files.write(root.resolve(UpdatePatcher.OPTIONS),options.getBytes(StandardCharsets.UTF_8));tool.rollback();yes(before.equals(snapshot(root)),"existing startup options restored byte for byte");
         Map<String,byte[]> modified=new LinkedHashMap<String,byte[]>(original);modified.put("com/kenjoy/kenjoycnc/KenjoyDraw.class",new byte[]{0,1,2});Files.write(root.resolve("core"),encrypted(modified));Map<String,String> unknown=snapshot(root);fails(()->tool.apply(false),"unknown main component rejected");yes(unknown.equals(snapshot(root)),"unknown version refusal leaves installation untouched");
         Files.write(root.resolve("core"),encrypted(original));tool.downloader=(url,size)->{throw new java.io.IOException("simulated offline");};Map<String,String> offline=snapshot(root);fails(()->tool.apply(true),"missing font download fails before commit");yes(offline.equals(snapshot(root)),"offline failure changes no target files");remove(root);

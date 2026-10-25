@@ -19,10 +19,15 @@ public final class ProductionHooks {
             frame.getRootPane().putClientProperty("modernization.production",Boolean.TRUE);
             TrialChrome.install(frame);
             DirectClose.install(frame);
-            UiStyle style=new UiStyle();style.apply(app);
+            UiStyle style=new UiStyle();
+            OpenFileWorkflow.install(app);
+            NoteExportDialogWorkflow.install();
             ApplicationTheme.install(frame);
             ResponsiveWorkspace.install(app);
+            MachinePanelWorkflow.install(app);
             NativeDpi.tree(frame.getRootPane());
+            style.apply(app);
+            MachinePanelWorkflow.refresh(app);
             TrialChrome.fitScreenOnStartup(frame);
             frame.getRootPane().putClientProperty(SESSION,style);
             frame.getRootPane().putClientProperty("modernization.preinstalled",Boolean.TRUE);
@@ -34,10 +39,12 @@ public final class ProductionHooks {
             JFrame frame=(JFrame)app.getClass().getMethod("f").invoke(app);
             Object style=frame.getRootPane().getClientProperty(SESSION);
             if(!(style instanceof UiStyle))return;
-            if(style instanceof UiStyle)((UiStyle)style).apply(app);
+            OpenFileWorkflow.refresh(app);
             ApplicationTheme.applyWindow(frame);
             ResponsiveWorkspace.install(app);
+            MachinePanelWorkflow.refresh(app);
             NativeDpi.tree(frame.getRootPane());
+            ((UiStyle)style).apply(app);
         }catch(Exception e){throw new IllegalStateException("Unable to refresh preinstalled UI",e);}
     });}
     private static void onEdt(Runnable action){

@@ -1,6 +1,7 @@
 package com.kenjoy.uitrial;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.List;
@@ -42,7 +43,8 @@ public final class UiStyle {
         "javax.swing.JTextField","javax.swing.JComboBox","javax.swing.JSeparator","javax.swing.JProgressBar"));
 
     public static Object field(Object app,String name)throws Exception {
-        Field f=app.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(app);
+        for(Class<?> type=app.getClass();type!=null;type=type.getSuperclass())try{Field f=type.getDeclaredField(name);f.setAccessible(true);return f.get(app);}catch(NoSuchFieldException ignored){}
+        throw new NoSuchFieldException(name);
     }
     private static void edt(){if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("EDT required");}
     public int count(){return saved.size();}
@@ -57,19 +59,19 @@ public final class UiStyle {
         Component[] children=host.getComponents();
         for(int i=0;i<Math.min(4,children.length);i++)plain(children[i]);
         if(children.length>=4){
-            if(children[0] instanceof JComboBox){Saved s=saved.get(children[0]);if(s!=null)NativeDpi.preferred((JComponent)children[0],new Dimension(s.preferred.width,32));}
+            if(children[0] instanceof JComboBox){Saved s=saved.get(children[0]);if(s!=null)((JComponent)children[0]).setPreferredSize(new Dimension(s.preferred.width,NativeDpi.px(32)));}
             if(children[1] instanceof JSeparator)children[1].setPreferredSize(new Dimension(0,0));
-            if(firstHost&&children[2] instanceof JPanel){JPanel row=(JPanel)children[2];row.setLayout(new GridLayout(1,2,5,0));row.setBorder(new EmptyBorder(0,2,0,2));}
+            if(firstHost&&children[2] instanceof JPanel){JPanel row=(JPanel)children[2];row.setLayout(new GridLayout(1,2,NativeDpi.px(5),0));row.setBorder(new EmptyBorder(0,NativeDpi.px(2),0,NativeDpi.px(2)));}
             if(children[3] instanceof JSeparator)children[3].setPreferredSize(new Dimension(0,0));
         }
-        // Optional reviewed extension: only the current NoteTab's ordinary Swing controls.
+        // Apply the same control treatment to every mode's ordinary sidebar controls.
         Object current=field(app,"g");
-        if(current instanceof JComponent && current.getClass().getName().equals("com.kenjoy.kenjoycnc.processTabs.NoteTab")) {
-            JComponent tab=(JComponent)current;boolean firstNote=!saved.containsKey(tab);shell(tab);if(firstNote)tab.setBorder(new EmptyBorder(2,1,4,1));
+        if(current instanceof JComponent && current.getClass().getName().startsWith("com.kenjoy.kenjoycnc.processTabs.")) {
+            JComponent tab=(JComponent)current;boolean note=current.getClass().getName().equals("com.kenjoy.kenjoycnc.processTabs.NoteTab");boolean firstNote=note&&!saved.containsKey(tab);shell(tab);if(firstNote)tab.setBorder(new EmptyBorder(NativeDpi.px(2),NativeDpi.px(1),NativeDpi.px(4),NativeDpi.px(1)));
             for(Component c:((Container)current).getComponents())plain(c);
-            JComponent canvas=(JComponent)field(current,"notePanel");
-            if(remember(canvas)){canvas.putClientProperty(UiCanvasColors.KEY,Boolean.TRUE);canvas.setBackground(UiPalette.CANVAS);}
-            scrollAncestors(canvas);
+            if(note){JComponent canvas=(JComponent)field(current,"notePanel");
+                if(remember(canvas)){canvas.putClientProperty(UiCanvasColors.KEY,Boolean.TRUE);canvas.setBackground(UiPalette.CANVAS);}
+                scrollAncestors(canvas);}
         }
         // The shell-only pass passed its position/state checks before this ordinary-control
         // extension. No device model, callback, enabled state or coordinate is touched.
@@ -107,7 +109,10 @@ public final class UiStyle {
             JComponent view=(JComponent)((JScrollPane)c).getViewport().getView();style(view);view.setForeground(MUTED);return;
         }
         boolean noteFontLabel=c instanceof JLabel && "NoteSelectionFont".equals(c.getName());
-        if(!PLAIN.contains(c.getClass().getName()) && !noteSection && !noteFontLabel)return;
+        if(!PLAIN.contains(c.getClass().getName()) && !noteSection && !noteFontLabel){
+            if(c instanceof JPanel)for(Component child:c.getComponents())plain(child);
+            return;
+        }
         style(c);
         // Combo editors/renderers and button internals are deliberately excluded.
         if(c.getClass()==JPanel.class || noteSection)for(Component child:c.getComponents())plain(child);
@@ -336,20 +341,29 @@ public final class UiStyle {
     }
     private static final class ToneRenderer implements ListCellRenderer {
         final JComboBox box;final ListCellRenderer original;final JLabel display=new JLabel();
+        final IdentityHashMap<Object,Icon> modeIcons=new IdentityHashMap<Object,Icon>();
         ToneRenderer(JComboBox box,ListCellRenderer original){this.box=box;this.original=original;}
         public Component getListCellRendererComponent(JList list,Object value,int index,boolean selected,boolean focus){
             Component rendered=original.getListCellRendererComponent(list,value,index,selected,focus);
             if(!(rendered instanceof JLabel))return rendered;
             JLabel label=(JLabel)rendered;display.setText(label.getText());Icon icon=label.getIcon();
-            boolean modeItem=icon!=null&&value!=null&&value.getClass().getName().equals("com.kenjoy.kenjoycnc.processTabs.NoteTab");
-            if(modeItem)icon=new OutlineIcon(6,NativeDpi.px(16),NativeDpi.px(16));
+            boolean modeItem=icon!=null&&value!=null&&value.getClass().getName().startsWith("com.kenjoy.kenjoycnc.processTabs.");
+            if(modeItem){Icon cached=modeIcons.get(value);if(cached==null){cached=value.getClass().getName().equals("com.kenjoy.kenjoycnc.processTabs.NoteTab")?new OutlineIcon(6,NativeDpi.px(18),NativeDpi.px(18)):new ModeIcon(icon,NativeDpi.px(18));modeIcons.put(value,cached);}icon=cached;}
             display.setIcon(icon);display.setFont(box.getFont());display.setBorder(label.getBorder());
             display.setHorizontalAlignment(label.getHorizontalAlignment());display.setVerticalAlignment(label.getVerticalAlignment());display.setHorizontalTextPosition(label.getHorizontalTextPosition());display.setVerticalTextPosition(label.getVerticalTextPosition());display.setIconTextGap(modeItem?6:label.getIconTextGap());display.setComponentOrientation(label.getComponentOrientation());
             display.setEnabled(box.isEnabled());display.setOpaque(true);display.setForeground(box.isEnabled()?TEXT:MUTED);display.setBackground(selected?UiPalette.SELECTION:UiPalette.WELL);
             Dimension pref=label.getPreferredSize();
-            display.setPreferredSize(modeItem&&pref!=null?new Dimension(pref.width,NativeDpi.px(24)):pref);
+            if(modeItem){Insets in=display.getInsets();FontMetrics fm=display.getFontMetrics(display.getFont());display.setPreferredSize(new Dimension(icon.getIconWidth()+display.getIconTextGap()+fm.stringWidth(display.getText())+in.left+in.right,Math.max(NativeDpi.px(28),fm.getHeight()+in.top+in.bottom+NativeDpi.px(4))));}
+            else display.setPreferredSize(pref);
             return display;
         }
+    }
+    private static final class ModeIcon implements Icon {
+        final BufferedImage pixels;final int size;
+        ModeIcon(Icon original,int size){this.size=size;int w=Math.max(1,original.getIconWidth()),h=Math.max(1,original.getIconHeight());pixels=new BufferedImage(w,h,BufferedImage.TYPE_INT_ARGB);Graphics2D g=pixels.createGraphics();try{original.paintIcon(new JLabel(),g,0,0);}finally{g.dispose();}
+            for(int y=0;y<h;y++)for(int x=0;x<w;x++){int argb=pixels.getRGB(x,y),a=argb>>>24,r=(argb>>16)&255,green=(argb>>8)&255,b=argb&255;int ink=255-(r*54+green*183+b*19)/256;int alpha=a*Math.max(0,ink)/255;pixels.setRGB(x,y,(alpha<<24)|(UiPalette.TEXT.getRGB()&0xFFFFFF));}}
+        public int getIconWidth(){return size;}public int getIconHeight(){return size;}
+        public void paintIcon(Component c,Graphics graphics,int x,int y){Graphics2D g=(Graphics2D)graphics.create();try{g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BICUBIC);g.drawImage(pixels,x,y,size,size,null);}finally{g.dispose();}}
     }
     private static final class ToneComboUI extends BasicComboBoxUI {
         final Saved old;int widthOffset,heightOffset;
