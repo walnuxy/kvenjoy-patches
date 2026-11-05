@@ -41,6 +41,7 @@ function Get-InstallationProcess([string]$Target, [object[]]$Processes) {
 }
 
 function New-InstallationPathForm([string]$InitialPath) {
+    $resolveInstallation = Get-Command Resolve-InstallationPath -CommandType Function
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $form = New-Object System.Windows.Forms.Form
@@ -89,7 +90,7 @@ function New-InstallationPathForm([string]$InitialPath) {
     }.GetNewClosure())
     $ok.Add_Click({
         try {
-            $form.Tag = Resolve-InstallationPath $pathBox.Text
+            $form.Tag = & $resolveInstallation $pathBox.Text
             $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
         } catch { $errorLabel.Text = $_.Exception.Message; $pathBox.Focus() }
     }.GetNewClosure())

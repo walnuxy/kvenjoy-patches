@@ -19,12 +19,12 @@ public final class ConnectionChecks {
     public static final class App {final JFrame frame=new JFrame();final Device y=new Device();public App(){frame.add(y.panel);}public JFrame f(){return frame;}}
     public static final class Device {final JButton c=new JButton("连接");final JComboBox<String> e=new JComboBox<>(new String[]{"115200"});final JPanel panel=new JPanel(new BorderLayout());Device(){panel.add(c,BorderLayout.NORTH);}}
     static final class Fake extends com.kenjoy.kenjoycnc.machine.a.c {
-        int opens,closes,legacyWrites;boolean open,fail,reply=true;long delay;String last;final com.kenjoy.kenjoycnc.machine.Re_c firmware;
+        int opens,closes,legacyWrites;boolean open,fail,failWrite,reply=true;long delay;String last;final com.kenjoy.kenjoycnc.machine.Re_c firmware;
         Fake(com.kenjoy.kenjoycnc.machine.Re_c f){super(f);firmware=f;}
         public boolean a(String port,int baud){opens++;last=port;if(fail)throw new IllegalStateException("Port busy");open=true;return true;}
         public void openForProbe(String port,int baud)throws Exception{super.openForProbe(port,baud);}
         public boolean b(){return open;}public void a(){open=false;closes++;}
-        protected void a(byte[] b){legacyWrites++;}protected void a(byte b){legacyWrites++;}
+        protected void a(byte[] b){if(failWrite)super.a(b);else legacyWrites++;}protected void a(byte b){if(failWrite)super.a(b);else legacyWrites++;}
         public void probe(String name)throws Exception{if(delay>0)Thread.sleep(delay);if(reply)field(firmware,"d",true);}
         public boolean confirmed(){return firmware.p();}
         public void accepted(){}
@@ -45,7 +45,7 @@ public final class ConnectionChecks {
         check("wrong firmware is not confirmation",ConnectionService.firmwareLine("FIRMWARE_NAME:Marlin 2.0")==null);
         check("Grbl build info confirms identity",ConnectionService.firmwareLine("[VER:1.1h.20190825:]").startsWith("Grbl 1.1"));
         firmwareName.set(null,"EBB");check("EBB version confirms identity",ConnectionService.firmwareLine("EBB Firmware Version 2.6.0")!=null);
-        com.kenjoy.kenjoycnc.machine.grbl.b firmware=new com.kenjoy.kenjoycnc.machine.grbl.b();Fake transport=new Fake(firmware);field(g.a(),"c",firmware);field(g.a(),"d",transport);field(g.a(),"e","Grbl");
+        com.kenjoy.kenjoycnc.machine.grbl.b firmware=new com.kenjoy.kenjoycnc.machine.grbl.b();Fake transport=new Fake(firmware);field(g.a(),"c",firmware);field(g.a(),"d",transport);field(g.a(),"e","Grbl");field(g.a(),"g",new com.kenjoy.kenjoycnc.machine.h(true,false));
         java.util.concurrent.atomic.AtomicReference<List<DevicePort>> ports=new java.util.concurrent.atomic.AtomicReference<>(Arrays.asList(ch));
         App[] app=new App[1];ConnectionService[] service=new ConnectionService[1];SwingUtilities.invokeAndWait(()->{try{app[0]=new App();service[0]=new ConnectionService(app[0],()->ports.get());}catch(Exception e){throw new RuntimeException(e);}});ConnectionService s=service[0];
         Field singleton=ConnectionService.class.getDeclaredField("instance");singleton.setAccessible(true);singleton.set(null,s);Settings.getInst().autoConnect=true;ConnectionService.startup();idle(s);check("startup verifies already inserted device",transport.opens==1&&field(s,"connected")==ch);
@@ -59,6 +59,10 @@ public final class ConnectionChecks {
         ports.set(Arrays.asList(ch,other));int opensBeforeChoice=transport.opens;call(s,"request",true);Thread.sleep(200);SwingUtilities.invokeAndWait(()->{for(Window w:Window.getWindows())if(w instanceof JDialog&&((JDialog)w).getTitle().equals("选择机器串口"))w.dispatchEvent(new java.awt.event.WindowEvent(w,java.awt.event.WindowEvent.WINDOW_CLOSING));});idle(s);check("multiple-device choice cancellation opens nothing",transport.opens==opensBeforeChoice);
         ports.set(Arrays.asList(moved));transport.reply=true;call(s,"request",true);idle(s);ports.set(Collections.emptyList());Method poll=ConnectionService.class.getDeclaredMethod("poll");poll.setAccessible(true);poll.invoke(s);Thread.sleep(150);check("unplug clears connection and suppresses job resume",field(s,"connected")==null&&(Boolean)field(s,"suppressed"));
         Settings.getInst().autoConnect=true;field(s,"suppressed",false);ports.set(Arrays.asList(ch));poll.invoke(s);idle(s);check("hotplug discovers and connects",field(s,"connected")==ch);
+        int writesBeforeFailure=transport.legacyWrites;field(g.a().i(),"d",true);transport.failWrite=true;transport.a("simulated command\n");transport.d();((ScheduledExecutorService)field(s,"worker")).submit(()->{}).get(3,TimeUnit.SECONDS);
+        check("serial failure closes the port and clears firmware connection",!transport.open&&!firmware.p()&&field(s,"connected")==null);
+        check("serial failure clears the stale sender without device commands",!g.a().i().i()&&transport.legacyWrites==writesBeforeFailure);
+        poll.invoke(s);check("failed transport cannot reconnect or resume by itself",(Boolean)field(s,"suppressed")&&!transport.open);
         field(s,"closed",true);((ScheduledExecutorService)field(s,"worker")).shutdownNow();SwingUtilities.invokeAndWait(()->app[0].frame.dispose());transport.c();
         System.out.println("COMPLETE connectionChecks="+count);System.exit(0);
     }

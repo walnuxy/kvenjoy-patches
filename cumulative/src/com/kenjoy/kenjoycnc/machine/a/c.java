@@ -22,8 +22,8 @@ public class c extends a implements SerialPortEventListener {
     }
     @Override public void a(){session++;SerialPort p=port;port=null;probing=false;safeSession=false;if(p!=null)try{p.removeEventListener();if(p.isOpened())p.closePort();}catch(Exception ignored){} }
     @Override public boolean b(){SerialPort p=port;return p!=null&&p.isOpened();}
-    @Override protected void a(byte[] bytes){if(probing)return;try{port.writeBytes(bytes);}catch(Exception e){throw new IllegalStateException(e);}}
-    @Override protected void a(byte value){if(probing)return;try{port.writeByte(value);}catch(Exception e){throw new IllegalStateException(e);}}
+    @Override protected void a(byte[] bytes){if(probing)return;try{SerialPort p=port;if(p==null||!p.writeBytes(bytes))throw new IllegalStateException("串口写入失败");}catch(Exception e){ConnectionService.transportFailed(e.getMessage());throw new IllegalStateException(e);}}
+    @Override protected void a(byte value){if(probing)return;try{SerialPort p=port;if(p==null||!p.writeByte(value))throw new IllegalStateException("串口写入失败");}catch(Exception e){ConnectionService.transportFailed(e.getMessage());throw new IllegalStateException(e);}}
     public void probe(String firmware)throws Exception{String command=firmware.equalsIgnoreCase("Grbl")?"$I\n":firmware.equals("EBB")?"V\r":"M115\n";port.writeBytes(command.getBytes(StandardCharsets.US_ASCII));}
     public boolean confirmed(){return confirmed;}
     public synchronized void accepted(){probing=false;received.setLength(0);}
@@ -32,7 +32,7 @@ public class c extends a implements SerialPortEventListener {
         try{byte[] data=p.readBytes();if(data==null)return;
             if(!safeSession){b(data);return;}
             received.append(new String(data,StandardCharsets.US_ASCII));if(received.length()>16384){received.setLength(0);return;}
-            int end;while((end=received.indexOf("\n"))>=0){String line=received.substring(0,end).trim();received.delete(0,end+1);String normalized=probing?ConnectionService.firmwareLine(line):line;if(normalized!=null){final long ticket=session;parser.execute(()->{if(ticket==session&&port==p){firmware.b(normalized);if(probing&&firmware.p())confirmed=true;}});}}
+            int end;while((end=received.indexOf("\n"))>=0){String line=received.substring(0,end).trim();received.delete(0,end+1);String normalized=probing?ConnectionService.firmwareLine(line):line;if(normalized!=null){final long ticket=session;parser.execute(()->{if(ticket==session&&port==p)try{firmware.b(normalized);if(probing&&firmware.p())confirmed=true;}catch(Exception e){ConnectionService.transportFailed(e.getMessage());}});}}
         }catch(Exception e){ConnectionService.transportFailed(e.getMessage());}
     }
 }

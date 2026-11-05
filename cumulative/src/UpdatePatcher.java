@@ -123,7 +123,21 @@ public final class UpdatePatcher {
     void write(Path p,byte[] b)throws Exception{target(dir.relativize(p).toString());if(b==null)Files.deleteIfExists(p);else{Files.createDirectories(p.getParent());FontPatcher.replace(p,b);}}
     Properties receipt(Path p)throws Exception{Properties r=new Properties();try(InputStream in=Files.newInputStream(p)){r.load(in);}return r;}
     void save(Path p,Properties r)throws Exception{ByteArrayOutputStream out=new ByteArrayOutputStream();r.store(out,"Cumulative patch receipt; no credentials");write(p,out.toByteArray());}
-    String check()throws Exception{Data data=inspect();return "已识别"+(data.mode.equals("vendor")?"原安装版":"0.019独立版")+"，可更新至累计补丁 "+metadata.getProperty("version")+"。";}
+    boolean matchesPayload(Data data)throws Exception{
+        for(Map.Entry<String,byte[]> entry:data.payload.entrySet()){
+            byte[] actual=data.entries.get(entry.getKey());if(actual==null)return false;
+            if(entry.getKey().endsWith(".class"))actual=decode(data,actual);
+            if(!Arrays.equals(actual,entry.getValue()))return false;
+        }
+        return true;
+    }
+    String check()throws Exception{Data data=inspect();return "已识别"+(data.mode.equals("vendor")?"原安装版":"0.019独立版")+(matchesPayload(data)?"，当前载荷已符合累计补丁 ":"，可更新至累计补丁 ")+metadata.getProperty("version")+"。";}
+    String verify()throws Exception{
+        Path record=dir.resolve(STATE+"/receipt.properties");
+        require(!Files.isRegularFile(record)||!"prepared".equals(receipt(record).getProperty("status")),"上次更新被中断，请先回滚恢复");
+        Data data=inspect();require(matchesPayload(data),"当前程序未完整安装本补丁，不能仅凭版本号认定已更新");
+        return "VERIFIED "+metadata.getProperty("version")+" "+data.mode+" payloadEntries="+data.payload.size();
+    }
     String apply(boolean fonts)throws Exception{
         Path state=state();
         try(FileChannel lock=FileChannel.open(state.resolve("update.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);FileLock held=lock.tryLock()){
@@ -187,7 +201,7 @@ public final class UpdatePatcher {
     public static void main(String[] args){
         boolean gui=args.length==2&&args[0].equals("--gui");
         try{
-            require(args.length==2,"用法：java -jar update-patcher.jar --gui|--check|--apply|--rollback 软件目录");
+            require(args.length==2,"用法：java -jar update-patcher.jar --gui|--check|--verify|--apply|--rollback 软件目录");
             UpdatePatcher tool=new UpdatePatcher(Paths.get(args[1]));String result;
             if(gui){
                 if(System.getProperty("java.specification.version","").equals("1.8")){
@@ -197,7 +211,7 @@ public final class UpdatePatcher {
                 String state;try{state=tool.check();}catch(Exception e){state=e.getMessage()+"\n可使用本工具已有的回滚记录恢复。";}
                 Object[] options={"一键更新","回滚本次更新","只检查","取消"};int choice=JOptionPane.showOptionDialog(null,"目录："+tool.dir+"\n"+state+"\n\n请先保存并退出软件。缺少的中文手写字库需要联网补齐。","奎享雕刻累计更新",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[0]);
                 if(choice<0||choice==3)return;result=choice==0?tool.guiApply():choice==1?tool.rollback():tool.check();JOptionPane.showMessageDialog(null,result,"累计更新",JOptionPane.INFORMATION_MESSAGE);
-            }else{if(args[0].equals("--check"))result=tool.check();else if(args[0].equals("--apply"))result=tool.apply(true);else if(args[0].equals("--rollback"))result=tool.rollback();else throw new IOException("未知操作");System.out.println(result);}
+            }else{if(args[0].equals("--check"))result=tool.check();else if(args[0].equals("--verify"))result=tool.verify();else if(args[0].equals("--apply"))result=tool.apply(true);else if(args[0].equals("--rollback"))result=tool.rollback();else throw new IOException("未知操作");System.out.println(result);}
         }catch(Exception e){String message=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();if(gui)JOptionPane.showMessageDialog(null,message,"更新未完成",JOptionPane.ERROR_MESSAGE);else System.err.println(message);System.exit(1);}
     }
 }

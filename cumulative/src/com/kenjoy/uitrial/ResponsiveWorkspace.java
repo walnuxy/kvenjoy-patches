@@ -175,7 +175,7 @@ public final class ResponsiveWorkspace {
             if(access!=null&&host!=null&&state().view!=View.MANUAL){
                 Dimension available=viewportPane.getViewport().getExtentSize();float current=access.scale();Dimension paper=access.paper();Dimension preferred=canvas.getPreferredSize();
                 if(available.width>80&&available.height>80&&paper.width>0&&paper.height>0){
-                    float marginX=Math.max(60,preferred.width-paper.width*current),marginY=Math.max(60,preferred.height-paper.height*current);
+                    float marginX=access.continuous()?80:Math.max(60,preferred.width-paper.width*current),marginY=access.continuous()?60:Math.max(60,preferred.height-paper.height*current);
                     float target=(available.width-CanvasHost.PAD*2-marginX)/paper.width;
                     if(state().view==View.PAGE)target=Math.min(target,(available.height-CanvasHost.PAD*2-marginY)/paper.height);
                     target=clamp(target,.1f,8f);
@@ -195,9 +195,10 @@ public final class ResponsiveWorkspace {
         final JComponent canvas;final Field zoom,width,height,angle;final Method rotate;
         CanvasAccess(JComponent canvas,Class<?> base)throws ReflectiveOperationException{this.canvas=canvas;zoom=base.getDeclaredField("a");width=base.getDeclaredField("h");height=base.getDeclaredField("i");angle=base.getDeclaredField("g");for(Field f:new Field[]{zoom,width,height,angle})f.setAccessible(true);rotate=base.getDeclaredMethod("a",float.class);rotate.setAccessible(true);}
         static CanvasAccess forCanvas(JComponent canvas){for(Class<?> k=canvas.getClass();k!=null;k=k.getSuperclass())if(k.getName().equals("com.kenjoy.kenjoycnc.h"))try{return new CanvasAccess(canvas,k);}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}return null;}
-        float scale(){try{return zoom.getFloat(canvas);}catch(IllegalAccessException e){throw new IllegalStateException(e);}}
-        Dimension paper(){try{boolean rotated=Math.abs(angle.getFloat(canvas)%180)>.01f;return new Dimension(Math.round(rotated?height.getFloat(canvas):width.getFloat(canvas)),Math.round(rotated?width.getFloat(canvas):height.getFloat(canvas)));}catch(IllegalAccessException e){throw new IllegalStateException(e);}}
-        void zoom(float scale){try{zoom.setFloat(canvas,scale);rotate.invoke(canvas,angle.getFloat(canvas));}catch(ReflectiveOperationException e){throw new IllegalStateException("Unable to adjust display scale",e);}}
+        boolean continuous(){try{return Boolean.TRUE.equals(canvas.getClass().getMethod("isContinuousView").invoke(canvas));}catch(ReflectiveOperationException e){return false;}}
+        float scale(){try{if(continuous())return ((Number)canvas.getClass().getMethod("displayScale").invoke(canvas)).floatValue();return zoom.getFloat(canvas);}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}}
+        Dimension paper(){try{if(continuous())return (Dimension)canvas.getClass().getMethod("displayPaperSize").invoke(canvas);boolean rotated=Math.abs(angle.getFloat(canvas)%180)>.01f;return new Dimension(Math.round(rotated?height.getFloat(canvas):width.getFloat(canvas)),Math.round(rotated?width.getFloat(canvas):height.getFloat(canvas)));}catch(ReflectiveOperationException e){throw new IllegalStateException(e);}}
+        void zoom(float scale){try{if(continuous()){canvas.getClass().getMethod("setDisplayScale",float.class).invoke(canvas,scale);return;}zoom.setFloat(canvas,scale);rotate.invoke(canvas,angle.getFloat(canvas));}catch(ReflectiveOperationException e){throw new IllegalStateException("Unable to adjust display scale",e);}}
     }
     private static final class CanvasHost extends JPanel implements Scrollable {
         static final int PAD=18;final JComponent canvas;final JViewport viewport;

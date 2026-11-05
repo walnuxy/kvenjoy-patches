@@ -23,7 +23,7 @@ import javax.swing.event.*;
 import javax.swing.text.*;
 
 /** Article editing slice; original entry points and synthetic accessors remain available. */
-public class NoteTab extends BaseTab implements ActionListener {
+public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Host {
     private static final long serialVersionUID=1L;
     private JFormattedTextField tfWidth,tfHeight,tfLeftGap,tfRightGap,tfTopGap,tfBottomGap,tfLines,tfWordGap,tfFontSize,tfCurPage;
     private JComboBox cbSettings;
@@ -41,6 +41,26 @@ public class NoteTab extends BaseTab implements ActionListener {
 
     private NoteDocument document=new NoteDocument();
     private NoteLayout layout=new NoteLayout();
+    private final NoteEditSession editorSession=new NoteEditSession(document);
+    private NoteEditGeometry editGeometry;
+    private NoteLayout displayLayout;
+    private SwingWorker<Prepared,Void> inlinePending;
+    private boolean layoutQueued;
+    private long layoutRevision=-1;
+    private String inlineError;
+    private String documentId=UUID.randomUUID().toString();
+    private JToggleButton editToggle;
+    private final javax.swing.Timer layoutTimer=new javax.swing.Timer(100,e->buildInlineLayout());
+    private final javax.swing.Timer recoveryTimer=new javax.swing.Timer(750,e->saveRecoveryAsync());
+    private boolean recoveryWriting,recoveryAgain;
+    private boolean recoveryRestoring=true;
+    private long recoveryStartRevision;
+    private float viewAngle,viewScale=1;
+    private Point viewPosition=new Point();
+    private boolean viewCaptured,pendingViewRestore,changingPage;
+    private int observedCaret=-1;
+    private boolean observedCaretBackward;
+
     private final NoteSelection selection=new NoteSelection();
     private volatile NoteFonts catalogue;
     private final Deque<NoteDocument> undo=new ArrayDeque<NoteDocument>(),redo=new ArrayDeque<NoteDocument>();
@@ -67,7 +87,7 @@ public class NoteTab extends BaseTab implements ActionListener {
     public NoteTab(KenjoyDraw owner) {
         super(owner);saveName="note";setLayout(new BoxLayout(this,BoxLayout.Y_AXIS));setName("NoteEditControls");
         setBorder(BorderFactory.createEmptyBorder(2,3,4,3));
-        JPanel article=section("文章");btnSetContent=button("编辑文章…");btnChooseFont=button("默认字体…");btnChooseFont.setToolTipText("设置文章默认字体与字形选取比例；点击“重新随机字形”后应用到未指定字");
+        JPanel article=section("文章");btnSetContent=button("编辑文章…");btnChooseFont=button("默认字体…");btnChooseFont.setToolTipText("设置文章默认字体与字形选取比例；点击“更新”后应用到未指定字");
         JButton saveDoc=new JButton("保存文章…");saveDoc.setName("NoteSaveDocument");saveDoc.addActionListener(e->saveDocumentDialog());
         JButton loadDoc=new JButton("打开文章…");loadDoc.setName("NoteOpenDocument");loadDoc.addActionListener(e->openDocumentDialog());
         JButton refreshFonts=new JButton("刷新字库");refreshFonts.setToolTipText("字库文件变化后重新扫描");refreshFonts.addActionListener(e->refreshFonts());
@@ -80,7 +100,7 @@ public class NoteTab extends BaseTab implements ActionListener {
         tfLines=number(30);tfWordGap=number(1);form(paper,5,"行数 / 字距",tfLines,tfWordGap);tfWordGap.setToolTipText("字距（毫米）");
         tfFontSize=number(95);form(paper,6,"字号 %",tfFontSize,new JLabel());
         JButton applyLayout=new JButton("应用版式");applyLayout.setName("NoteApplyLayout");applyLayout.setToolTipText("重新排版，保留已经选定的字形");applyLayout.addActionListener(e->applyLayoutAsync());
-        JButton rerandomize=new JButton("重新随机字形");rerandomize.setName("NoteRerandomize");rerandomize.setToolTipText("根据默认字体与配比重新选取未指定字的字形");rerandomize.addActionListener(e->rerandomizeAsync());
+        JButton rerandomize=new JButton("更新");rerandomize.setName("NoteRerandomize");rerandomize.setToolTipText("根据默认字体与配比重新选取未指定字的字形");rerandomize.addActionListener(e->rerandomizeAsync());
         wide(paper,7,buttons(applyLayout,rerandomize));
         JPanel chosen=section("预览选字");btnPrePage=button("上一页");btnNextPage=button("下一页");tfCurPage=number(1);tfCurPage.setColumns(2);tfCurPage.addActionListener(this);labelMaxPage=new JLabel("/0");
         JPanel pageNav=new JPanel(new GridBagLayout());cell(pageNav,0,0,1,0,btnPrePage);cell(pageNav,1,0,1,1,tfCurPage);cell(pageNav,2,0,1,0,labelMaxPage);cell(pageNav,3,0,1,0,btnNextPage);wide(chosen,0,pageNav);
@@ -90,15 +110,20 @@ public class NoteTab extends BaseTab implements ActionListener {
         fontButton=new JButton("指定字体…");fontButton.setName("NoteAssignFont");fontButton.setToolTipText("只修改当前所选字的字体");fontButton.addActionListener(e->chooseSelectionFont());
         resetButton=new JButton("恢复默认");resetButton.setToolTipText("取消所选字的手动字体指定");resetButton.addActionListener(e->applyFont(null));wide(chosen,4,buttons(fontButton,resetButton));
         undoButton=new JButton("撤销");undoButton.setName("NoteUndo");undoButton.addActionListener(e->history(false));redoButton=new JButton("重做");redoButton.setName("NoteRedo");redoButton.addActionListener(e->history(true));wide(chosen,5,buttons(undoButton,redoButton));
-        clearMissingButton=new JButton("清除红框…");clearMissingButton.setName("NoteClearMissing");clearMissingButton.setToolTipText("处理整篇文章所有缺字红框，可用空格替代或删除，支持撤销");clearMissingButton.addActionListener(e->chooseMissingAction());clearMissingButton.setVisible(false);wide(chosen,6,clearMissingButton);
+        clearMissingButton=new JButton("清除红框…");clearMissingButton.setName("NoteClearMissing");clearMissingButton.setToolTipText("处理整篇文章所有缺字红框，可用指定字符或空格替代，也可删除；支持撤销");clearMissingButton.addActionListener(e->chooseMissingAction());clearMissingButton.setVisible(false);wide(chosen,6,clearMissingButton);
         randomCopies=new JCheckBox("每份重新随机");randomCopies.setToolTipText("批量导出时每份重新随机未指定字，保留手动指定字体");
         status.setName("NoteEditStatus");status.setAlignmentX(LEFT_ALIGNMENT);status.setEditable(false);status.setLineWrap(true);status.setWrapStyleWord(true);status.setOpaque(false);status.setFont(UIManager.getFont("Label.font"));status.setBorder(BorderFactory.createEmptyBorder(4,4,2,4));
         JScrollPane statusPane=new JScrollPane(status,JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,JScrollPane.HORIZONTAL_SCROLLBAR_NEVER){public Dimension getPreferredSize(){Dimension d=super.getPreferredSize();d.width=1;d.height=status.getFontMetrics(status.getFont()).getHeight()*2+status.getInsets().top+status.getInsets().bottom+4;return d;}public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};statusPane.setBorder(BorderFactory.createEmptyBorder());statusPane.setAlignmentX(LEFT_ALIGNMENT);add(statusPane);
+        editToggle=new JToggleButton("进入编辑模式");editToggle.setName("NoteEditMode");editToggle.addActionListener(e->setEditing(editToggle.isSelected()));
+        JButton editorSettings=new JButton("编辑设置…");editorSettings.setName("NoteEditorSettings");editorSettings.addActionListener(e->showEditorSettings());wide(article,3,buttons(editToggle,editorSettings));
+        layoutTimer.setRepeats(false);recoveryTimer.setRepeats(false);
         binding=true;
         try(Reader in=Files.newBufferedReader(getPageSaveFile().toPath(),StandardCharsets.UTF_8)) {PageInfo[] pages=new Gson().fromJson(in,PageInfo[].class);if(pages!=null)for(PageInfo p:pages)if(p!=null&&p.name!=null)model.addElement(p);}catch(Exception ignored){}
         if(model.getSize()==0){PageInfo p=new PageInfo("默认",210,297,31.8f,31.8f,25.4f,25.4f,30,95,true);p.space=1;model.addElement(p);}
         pageInfo=(PageInfo)model.getElementAt(0);cbSettings.setSelectedIndex(0);binding=false;setPageInfo(pageInfo);applyFonts();
-        contentSet=document.format;content=new StringBuffer();supportFiles=new String[]{"kjnote","txt","doc","docx"};savedDocument=documentState=semanticState(document);selectionChanged();
+        document.page=copyPage(pageInfo);editorSession.reset(document);document=editorSession.mutableDocument();
+        contentSet=document.format;content=new StringBuffer();supportFiles=new String[]{"kjnote","txt","doc","docx"};savedDocument=documentState=semanticState(document);captureInputFonts();refreshEditGeometry();selectionChanged();
+        recoveryStartRevision=editorSession.revision();SwingUtilities.invokeLater(this::restoreRecovery);
     }
     private JPanel section(String title){JPanel p=new JPanel(new GridBagLayout()){public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};p.setAlignmentX(LEFT_ALIGNMENT);p.setBorder(BorderFactory.createTitledBorder(title));add(p);return p;}
     private static JPanel buttons(AbstractButton... buttons){JPanel p=new JPanel(new GridLayout(1,buttons.length,4,0));for(AbstractButton b:buttons){b.setMargin(new Insets(3,5,3,5));p.add(b);}return p;}
@@ -136,75 +161,88 @@ public class NoteTab extends BaseTab implements ActionListener {
     }
     private File getPageSaveFile(){return new File(L.b(),"page_settings.json");}
     private void setPageInfo(PageInfo p){if(p==null)return;pageInfo=copyPage(p);binding=true;tfWidth.setValue(p.pageWidth);tfHeight.setValue(p.pageHeight);tfLeftGap.setValue(p.leftGap);tfRightGap.setValue(p.rightGap);tfTopGap.setValue(p.topGap);tfBottomGap.setValue(p.bottomGap);tfLines.setValue(p.lineNum);tfWordGap.setValue(p.space);tfFontSize.setValue(p.fontSize);Object template=p.name;for(int i=0;i<model.getSize();i++)if(java.util.Objects.equals(((PageInfo)model.getElementAt(i)).name,p.name)){template=model.getElementAt(i);break;}cbSettings.setSelectedItem(template);binding=false;if(pageInfo.fontPath==null)applyFonts();}
-    private void applyFonts(){FontsDialogData f=(FontsDialogData)Storage.getStore(FontsDialogData.class);pageInfo.fontPath=f.fontsName==null?null:f.fontsName.clone();pageInfo.fontChance=f.chance==null?null:f.chance.clone();message("默认字体已载入；点击“重新随机字形”用于未指定的字。");}
+    private void applyFonts(){FontsDialogData f=(FontsDialogData)Storage.getStore(FontsDialogData.class);pageInfo.fontPath=f.fontsName==null?null:f.fontsName.clone();pageInfo.fontChance=f.chance==null?null:f.chance.clone();captureInputFonts();message("默认字体已载入；点击“更新”用于未指定的字。");}
     private synchronized NoteFonts fonts() throws Exception {if(catalogue==null)catalogue=NoteFonts.installed();else catalogue=catalogue.updated();return catalogue;}
     private boolean fontRefreshRunning;
     private void refreshFonts(){if(fontRefreshRunning){message("字库刷新已在后台进行。");return;}if(isBusy()){message("请等待排版完成后刷新字库。");return;}fontRefreshRunning=true;final NoteFonts previous=catalogue;message("正在后台扫描字库，文章与已选字形保持不变…");new SwingWorker<NoteFonts,Void>(){protected NoteFonts doInBackground()throws Exception{return previous==null?NoteFonts.installed():previous.refresh();}protected void done(){fontRefreshRunning=false;try{catalogue=get();message("字库已刷新，共 "+catalogue.entries().size()+" 个字体。"+(catalogue.errors().isEmpty()?"":"无法读取："+catalogue.errors()));}catch(Exception e){failure(e);}}}.execute();}
     private void message(String text){if(layout!=null)text+=layout.notice();status.setText(text);status.setCaretPosition(0);status.setToolTipText("<html>"+escape(text)+"</html>");}
     private static String escape(String t){return t==null?"":t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br>");}
-    private void failure(Throwable error){while(error.getCause()!=null)error=error.getCause();lastFailure=error.getMessage()==null?error.toString():error.getMessage();message(lastFailure);System.err.println("NOTE_EDIT_ERROR "+lastFailure);}
+    private void reportFailure(Throwable error){while(error.getCause()!=null)error=error.getCause();lastFailure=error.getMessage()==null?error.toString():error.getMessage();message(lastFailure);System.err.println("NOTE_EDIT_ERROR "+lastFailure);}
     public void processAsync(){rerandomizeAsync();}
-    public void applyLayoutAsync(){if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::applyLayoutAsync);return;}if(isBusy()){message("请等待当前文章修改完成。");return;}try{NoteDocument d=document.copy();d.page=readPage();submit(d,true,false);}catch(Exception e){failure(e);}}
-    public void rerandomizeAsync(){if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::rerandomizeAsync);return;}if(isBusy()){message("请等待当前文章修改完成。");return;}try{NoteDocument d=document.copy();d.page=readPage();d.pool.clear();d.chances=d.page.fontChance==null?null:d.page.fontChance.clone();d.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));d.rerandomize();submit(d,true,false);}catch(Exception e){failure(e);}}
+    public void applyLayoutAsync(){if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::applyLayoutAsync);return;}if(pending==null&&loading==null){try{NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();d.page=readPage();validatePageCandidate(d);editorSession.commit(t,d,NoteEditSession.Kind.OTHER);changed();if(notePanel!=null)notePanel.syncEditor();}catch(Exception e){failure(e);}return;}if(isBusy()){message("请等待当前文章修改完成。");return;}try{NoteDocument d=document.copy();d.page=readPage();submit(d,true,false);}catch(Exception e){failure(e);}}
+    public void rerandomizeAsync(){if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::rerandomizeAsync);return;}if(pending==null&&loading==null){try{captureInputFonts();NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();d.page=readPage();d.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));d.pool.clear();d.chances=d.page.fontChance==null?null:d.page.fontChance.clone();for(NoteDocument.Atom atom:d.atoms)if(atom.override==null){atom.inputFonts=d.page.fontPath==null?null:d.page.fontPath.clone();atom.inputChances=d.page.fontChance==null?null:d.page.fontChance.clone();atom.inputGeneration=d.generation+1;}d.rerandomize();validatePageCandidate(d);editorSession.commit(t,d,NoteEditSession.Kind.UPDATE);changed();if(notePanel!=null)notePanel.syncEditor();}catch(Exception e){failure(e);}return;}if(isBusy()){message("请等待当前文章修改完成。");return;}try{NoteDocument d=document.copy();d.page=readPage();d.pool.clear();d.chances=d.page.fontChance==null?null:d.page.fontChance.clone();d.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));d.rerandomize();submit(d,true,false);}catch(Exception e){failure(e);}}
     public void process(){processAsync();}
     private SwingWorker<Prepared,Void> submit(final NoteDocument candidate,final boolean history,final boolean newDocument){return submit(candidate,history,newDocument,null);}
     private SwingWorker<Prepared,Void> submit(final NoteDocument candidate,final boolean history,final boolean newDocument,final Runnable success) {return submit(candidate,history,newDocument,success,null);}
     private SwingWorker<Prepared,Void> submit(final NoteDocument candidate,final boolean history,final boolean newDocument,final Runnable success,final Runnable onFailure) {
+        return submit(candidate,history,newDocument,success,onFailure,null);
+    }
+    private SwingWorker<Prepared,Void> submit(final NoteDocument candidate,final boolean history,final boolean newDocument,final Runnable success,final Runnable onFailure,final java.util.function.Consumer<Prepared> validator) {
         if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("文章提交必须在EDT发起");
         if(isBusy()){message("请等待当前文章修改完成。");return null;}
+        if(!newDocument){long firstNew=editorSession.mutableDocument().nextId;String[] input=editorSession.inputFonts();int[] chances=editorSession.inputChances();for(NoteDocument.Atom atom:candidate.atoms)if(atom.id>=firstNew&&atom.inputFonts==null&&atom.inputChances==null){atom.inputFonts=input.clone();atom.inputChances=chances.clone();atom.inputGeneration=candidate.generation;}}
         final long ticket=++request;lastFailure=null;message("正在校验字体并重新排版…");
         final float dpi=Settings.getInst().dpi;
         pending=new SwingWorker<Prepared,Void>() {
             protected Prepared doInBackground() throws Exception {
                 NoteFonts f=fonts();
-                boolean needPool=false;for(NoteDocument.Atom a:candidate.atoms)if(a.drawable()&&a.override==null&&a.automatic==null)needPool=true;
-                if(candidate.pool.isEmpty()&&needPool){candidate.pool=f.byNames(candidate.page.fontPath);candidate.chances=candidate.page.fontChance==null?null:candidate.page.fontChance.clone();}
                 if(candidate.page.fontPath==null){candidate.page.fontPath=new String[candidate.pool.size()];for(int i=0;i<candidate.pool.size();i++)candidate.page.fontPath[i]=new File(candidate.pool.get(i).relativePath).getName();candidate.page.fontChance=candidate.chances;}
-                return new Prepared(candidate,new NoteLayoutEngine(f,dpi).build(candidate));
+                Prepared prepared=new Prepared(candidate,new NoteLayoutEngine(f,dpi).build(candidate));if(validator!=null)validator.accept(prepared);return prepared;
             }
             protected void done() {
                 if(ticket!=request)return;
                 boolean committed=false;
-                try {Prepared p=get();String before=document.encode();long anchor=!layout.pages.isEmpty()&&!layout.pages.get(curPage).glyphs.isEmpty()?layout.pages.get(curPage).glyphs.get(0).id:-1;
-                    if(history&&!before.equals(p.document.encode())){undo.push(document.copy());while(undo.size()>30)undo.removeLast();redo.clear();}
+                try {Prepared p=get();long anchor=!layout.pages.isEmpty()&&!layout.pages.get(curPage).glyphs.isEmpty()?layout.pages.get(curPage).glyphs.get(0).id:-1;
+
                     if(newDocument)idHighWater=p.document.nextId;else idHighWater=Math.max(idHighWater,p.document.nextId);p.document.nextId=idHighWater;
-                    document=p.document;layout=p.layout;documentState=semanticState(document);if(newDocument){curPage=0;selection.clear();undo.clear();redo.clear();savedDocument=documentState;setPageInfo(document.page);}else selection.retain(document);
+                    document=p.document;layout=p.layout;
+                    if(newDocument)editorSession.reset(document);else{NoteEditSession.Transaction t=editorSession.capture();editorSession.commit(t,document,NoteEditSession.Kind.OTHER);}
+                    document=editorSession.mutableDocument();layoutRevision=editorSession.revision();inlineError=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);documentState=semanticState(document);if(newDocument){curPage=0;selection.clear();undo.clear();redo.clear();savedDocument=documentState;editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();}else selection.retain(document);
                     content=new StringBuffer(document.text);contentSet=document.format;pageDatas.clear();for(NoteLayout.Page page:layout.pages)pageDatas.add(new com.kenjoy.kenjoycnc.l.f(0,page.paths,Collections.emptyList()));
                     if(anchor>=0&&!newDocument){int index=layout.pageOf(anchor);if(index>=0)curPage=index;}
-                    changePage();message("已更新。"+(isDirty()?"文章有未保存修改。":""));committed=true;if(success!=null)success.run();
+                    changePage();if(notePanel!=null)notePanel.syncEditor();message("已更新。"+(isDirty()?"文章有未保存修改。":""));committed=true;if(success!=null)success.run();recoveryTimer.restart();
                 }catch(CancellationException ignored){}catch(Exception error){failure(error);if(!committed&&onFailure!=null)onFailure.run();}finally{if(ticket==request){pending=null;selectionChanged();}}
             }
         };selectionChanged();pending.execute();return pending;
     }
-    private void changePage(){curPage=Math.max(0,Math.min(curPage,layout.pages.size()-1));
-        if(notePanel!=null){NoteLayout.Page page=layout.pages.isEmpty()?new NoteLayout.Page():layout.pages.get(curPage);notePanel.bind(page,selection,this::selectionChanged,this::chooseSelectionFont,()->applyFont(null),document.page.pageWidth>0?document.page:pageInfo);}
-        labelMaxPage.setText("/"+layout.pages.size());tfCurPage.setValue(layout.pages.isEmpty()?0:curPage+1);btnPrePage.setEnabled(curPage>0);btnNextPage.setEnabled(curPage+1<layout.pages.size());selectionChanged();}
+    private void changePage(){boolean previous=changingPage;changingPage=true;try{int count=geometry().layout.pages.size();curPage=Math.max(0,Math.min(curPage,count-1));
+        if(notePanel!=null){NoteLayout.Page page=count==0?new NoteLayout.Page():geometry().layout.pages.get(curPage);notePanel.bind(page,selection,this::selectionChanged,this::chooseSelectionFont,()->applyFont(null),document.page.pageWidth>0?document.page:pageInfo);notePanel.refreshEditor();}
+        labelMaxPage.setText("/"+count);tfCurPage.setValue(count==0?0:curPage+1);btnPrePage.setEnabled(curPage>0);btnNextPage.setEnabled(curPage+1<count);selectionChanged();}finally{changingPage=previous;}}
     private void cacluteAllPaths(){processAsync();}
-    private void selectionChanged(){updateMissingButton();Set<String> names=new LinkedHashSet<String>();int explicit=0;for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id)){NoteDocument.FontRef f=a.override!=null?a.override:a.automatic;if(f!=null)names.add(f.name);if(a.override!=null)explicit++;}String detail=names.size()>1?"混合字体":names.isEmpty()?"点选、拖框或选择整行":names.iterator().next();selectionLabel.setText("已选 "+selection.ids().size()+" 字 · 指定 "+explicit+" 字"+(isDirty()?" · 未保存":""));selectionFontLabel.setText(detail);selectionFontLabel.setToolTipText(detail);boolean valid=!selection.ids().isEmpty()&&!isBusy();fontButton.setEnabled(valid);resetButton.setEnabled(valid);undoButton.setEnabled(!undo.isEmpty()&&!isBusy());redoButton.setEnabled(!redo.isEmpty()&&!isBusy());setPageInputsEnabled(!isBusy());if(notePanel!=null)notePanel.repaint();}
+    private void updateSelectionControls(){updateMissingButton();Set<String> names=new LinkedHashSet<String>();int explicit=0;for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id)){NoteDocument.FontRef f=a.override!=null?a.override:a.automatic;if(f!=null)names.add(f.name);if(a.override!=null)explicit++;}String detail=names.size()>1?"混合字体":names.isEmpty()?"点选、拖框或选择整行":names.iterator().next();selectionLabel.setText("已选 "+selection.ids().size()+" 字 · 指定 "+explicit+" 字"+(isDirty()?" · 未保存":""));selectionFontLabel.setText(detail);selectionFontLabel.setToolTipText(detail);boolean valid=!selection.ids().isEmpty()&&!isBusy();fontButton.setEnabled(valid);resetButton.setEnabled(valid);undoButton.setEnabled(editorSession.canUndo());redoButton.setEnabled(editorSession.canRedo());setPageInputsEnabled(!isBusy());if(notePanel!=null)notePanel.repaint();}
     private void setPageInputsEnabled(boolean enabled){cbSettings.setEnabled(enabled);for(JFormattedTextField field:new JFormattedTextField[]{tfWidth,tfHeight,tfLeftGap,tfRightGap,tfTopGap,tfBottomGap,tfLines,tfWordGap,tfFontSize})field.setEnabled(enabled);btnSave.setEnabled(enabled);btnDelete.setEnabled(enabled);btnChooseFont.setEnabled(enabled);}
     private void selectCurrentLine(){if(layout.pages.isEmpty())return;NoteLayout.Page page=layout.pages.get(curPage);for(NoteLayout.Glyph g:page.glyphs)if(selection.ids().contains(g.id)){selection.add(page.lines.get(g.line).ids,false);selectionChanged();return;}message("先点选行内任意一个字，或点击预览左侧 › 选整行。");}
     private void updateMissingButton(){boolean visible=!layout.missing.isEmpty();if(clearMissingButton.isVisible()!=visible){clearMissingButton.setVisible(visible);revalidate();repaint();}clearMissingButton.setEnabled(visible&&!isBusy());}
     private void chooseMissingAction(){
         if(isBusy()||layout.missing.isEmpty())return;
-        Object[] options={"用空格替代","全部删除","取消"};
-        int action=JOptionPane.showOptionDialog(this,"处理整篇文章的所有红框字符；正常文字和已补全的符号保持不变。\n用空格替代：每个红框改为一个空格。\n全部删除：删除红框字符并重新排版。两种操作都可以撤销。","清除红框",JOptionPane.DEFAULT_OPTION,JOptionPane.QUESTION_MESSAGE,null,options,options[0]);
-        if(action==0||action==1)clearMissingCharacters(action==0);
+        Object[] options={"用指定字符替换","用空格替代","全部删除","取消"};
+        int action=JOptionPane.showOptionDialog(this,"处理整篇文章的所有红框字符；正常文字和已补全的符号保持不变。\n指定字符替换后以蓝框标出，蓝框不会导出。\n也可用空格替代或全部删除；所有操作都可以撤销。","清除红框",JOptionPane.DEFAULT_OPTION,JOptionPane.QUESTION_MESSAGE,null,options,options[0]);
+        if(action==0){String replacement=JOptionPane.showInputDialog(this,"输入一个替代字符（也可输入空格）：","替换红框字符",JOptionPane.QUESTION_MESSAGE);if(replacement!=null)replaceMissingCharacters(replacement);}
+        else if(action==1||action==2)clearMissingCharacters(action==1);
     }
     public void clearMissingCharacters(boolean spaces){
         if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(()->clearMissingCharacters(spaces));return;}
         if(isBusy()||layout.missing.isEmpty())return;
-        Set<Long> ids=new HashSet<Long>();for(NoteLayout.Page page:layout.pages)for(NoteLayout.Glyph glyph:page.glyphs)if(glyph.path.a().length==0)ids.add(glyph.id);
+        Set<Long> ids=new HashSet<Long>();for(NoteLayout.Page page:layout.pages)for(NoteLayout.Glyph glyph:page.glyphs)if(glyph.missing)ids.add(glyph.id);
         try{NoteDocument candidate=document.copy();candidate.clearMissing(ids,spaces);submit(candidate,true,false,()->message("已"+(spaces?"用空格替代":"删除")+ids.size()+" 个红框字符，可撤销。"));}catch(Exception error){failure(error);}
     }
-    public void applyFont(NoteDocument.FontRef font){if(selection.ids().isEmpty()){message("请先在预览中选字。");return;}NoteDocument d=document.copy();Set<Long> targets=selection.capture();for(NoteDocument.Atom a:d.atoms)if(targets.contains(a.id))a.override=font;submit(d,true,false);}
-    private void history(boolean forward){Deque<NoteDocument> source=forward?redo:undo,target=forward?undo:redo;if(source.isEmpty()||isBusy())return;NoteDocument before=document.copy(),candidate=source.peek().copy();
-        candidate.nextId=Math.max(candidate.nextId,idHighWater);submit(candidate,false,false,()->{source.pop();target.push(before);setPageInfo(document.page);selectionChanged();});
+    public void replaceMissingCharacters(String replacement){
+        if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(()->replaceMissingCharacters(replacement));return;}
+        if(isBusy()||layout.missing.isEmpty())return;
+        try{
+            NoteDocument.validateReplacement(replacement);Set<Long> ids=new HashSet<Long>();for(NoteLayout.Page page:layout.pages)for(NoteLayout.Glyph glyph:page.glyphs)if(glyph.missing)ids.add(glyph.id);
+            final long firstNew=document.nextId;NoteDocument candidate=document.copy();candidate.replaceMissing(ids,replacement);
+            submit(candidate,true,false,()->message("已替换 "+ids.size()+" 个红框字符，并以蓝框标出；可撤销。"),null,prepared->{
+                for(NoteLayout.Page page:prepared.layout.pages)for(NoteLayout.Glyph glyph:page.glyphs)if(glyph.id>=firstNew&&glyph.missing)throw new IllegalArgumentException("所选字体无法生成替代字符，请换一个字符或调整默认字体；文章尚未修改。");
+            });
+        }catch(Exception error){failure(error);}
     }
-    private static String semanticState(NoteDocument d){com.google.gson.JsonObject state=new Gson().toJsonTree(d).getAsJsonObject();state.remove("nextId");return state.toString();}
-    public boolean isDirty(){return !documentState.equals(savedDocument);}
-    public boolean hasUnappliedPageSettings(){try{return !samePageSettings(readPage(),document.page);}catch(Exception error){return true;}}
+    public void applyFont(NoteDocument.FontRef font){if(selection.ids().isEmpty()){message("请先在预览中选字。");return;}NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();Set<Long> targets=selection.capture();for(NoteDocument.Atom a:d.atoms)if(targets.contains(a.id))a.override=font;editorSession.commit(t,d,NoteEditSession.Kind.FONT);changed();if(notePanel!=null)notePanel.syncEditor();}
+    private static String semanticState(NoteDocument d){return d.encode();}
+    public boolean isDirty(){return editorSession.isDirty();}
+    public boolean hasUnappliedPageSettings(){try{PageInfo requested=readPage(),applied=copyPage(document.page);requested.fontPath=applied.fontPath;requested.fontChance=applied.fontChance;return !samePageSettings(requested,applied);}catch(Exception error){return true;}}
     private static boolean samePageSettings(PageInfo a,PageInfo b){return java.util.Objects.equals(a.name,b.name)&&Float.compare(a.pageWidth,b.pageWidth)==0&&Float.compare(a.pageHeight,b.pageHeight)==0&&Float.compare(a.leftGap,b.leftGap)==0&&Float.compare(a.rightGap,b.rightGap)==0&&Float.compare(a.topGap,b.topGap)==0&&Float.compare(a.bottomGap,b.bottomGap)==0&&a.lineNum==b.lineNum&&Float.compare(a.space,b.space)==0&&Float.compare(a.fontSize,b.fontSize)==0&&Arrays.equals(a.fontPath,b.fontPath)&&Arrays.equals(a.fontChance,b.fontChance);}
-    public boolean isBusy(){return pending!=null||loading!=null;}
+    public boolean isBusy(){return pending!=null||loading!=null||inlinePending!=null||layoutQueued;}
     public String lastFailure(){return lastFailure;}
     public NoteDocument document(){return document.copy();}
     public NoteLayout noteLayout(){return layout;}
@@ -213,9 +251,9 @@ public class NoteTab extends BaseTab implements ActionListener {
     public boolean randomCopies(){return randomCopies.isSelected();}
     public void setRandomCopies(boolean selected){randomCopies.setSelected(selected);}
     public void setDocument(NoteDocument d){submit(d.copy(),false,true);}
-    public void saveDocument(Path file) throws IOException{if(isBusy())throw new IOException("请等待排版完成后保存");if(hasUnappliedPageSettings())throw new IOException("页面或默认字体设置尚未应用；请先点击“应用版式”并等待排版完成。");document.save(file);documentFile=file;savedDocument=semanticState(document);selectionChanged();message("文章已保存："+file.getFileName());}
-    public boolean saveDocumentCurrent(){if(isBusy()){message("请等待排版完成后保存。");return false;}try{if(documentFile==null)return saveDocumentDialog();saveDocument(documentFile);return true;}catch(Exception e){failure(e);return false;}}
-    private boolean saveDocumentDialog(){if(isBusy())return false;if(hasUnappliedPageSettings()){message("页面或默认字体设置尚未应用；请先点击“应用版式”并等待排版完成。");return false;}try{File chosen=NoteFileDialogs.saveArticle(this,documentFile==null?null:documentFile.toFile());if(chosen!=null){saveDocument(chosen.toPath());return true;}}catch(Exception e){failure(e);}return false;}
+    public void saveDocument(Path file) throws IOException{finishEditorComposition();if(pending!=null||loading!=null)throw new IOException("请等待文章读取完成后保存");if(hasUnappliedPageSettings())throw new IOException("页面版式尚未应用；请先点击“应用版式”。");document.save(file);documentFile=file;savedDocument=documentState=semanticState(document);editorSession.markSaved();selectionChanged();saveRecoveryAsync();message("文章已保存："+file.getFileName());}
+    public boolean saveDocumentCurrent(){if(pending!=null||loading!=null){message("请等待排版完成后保存。");return false;}try{if(documentFile==null)return saveDocumentDialog();saveDocument(documentFile);return true;}catch(Exception e){failure(e);return false;}}
+    private boolean saveDocumentDialog(){if(pending!=null||loading!=null)return false;if(hasUnappliedPageSettings()){message("页面或默认字体设置尚未应用；请先点击“应用版式”并等待排版完成。");return false;}try{File chosen=NoteFileDialogs.saveArticle(this,documentFile==null?null:documentFile.toFile());if(chosen!=null){saveDocument(chosen.toPath());return true;}}catch(Exception e){failure(e);}return false;}
     private void openDocumentDialog(){if(isBusy())return;try{openDocument(NoteFileDialogs.openArticle(this,documentFile==null?null:documentFile.toFile()));}catch(Exception e){failure(e);}}
     public boolean openDocument(File file){return openDocument(file,null,null);}
     public boolean openDocument(File file,Runnable onSuccess){return openDocument(file,onSuccess,null);}
@@ -251,7 +289,7 @@ public class NoteTab extends BaseTab implements ActionListener {
                 try{
                     if(stop.get()){message("已取消读取文章。");return;}
                     NoteDocument d=get();
-                    Runnable committed=()->{documentFile=nativeArticle?f.toPath():null;if(!nativeArticle){savedDocument="";selectionChanged();message("已导入文章，请保存为 .kjnote："+f.getName());}if(onSuccess!=null)onSuccess.run();};
+                    Runnable committed=()->{documentFile=nativeArticle?f.toPath():null;if(!nativeArticle){savedDocument="";editorSession.markUnsaved();selectionChanged();message("已导入文章，请保存为 .kjnote："+f.getName());}if(onSuccess!=null)onSuccess.run();};
                     if(submit(d,false,true,committed,onFailure)==null&&onFailure!=null)onFailure.run();
                 }catch(Exception error){failure(error);if(onFailure!=null)onFailure.run();}finally{selectionChanged();}
             }
@@ -328,10 +366,10 @@ public class NoteTab extends BaseTab implements ActionListener {
         }
     }
     public boolean onNoteContentSet(StringBuffer text,WordContentFormat format){if(!SwingUtilities.isEventDispatchThread()||isBusy())return false;NoteDocument d=document.copy();d.replace(0,d.text.length(),text.toString());d.format=new Gson().fromJson(new Gson().toJson(format),WordContentFormat.class);final boolean[] committed={false};SecondaryLoop loop=Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();SwingWorker<Prepared,Void> work=submit(d,true,false,()->committed[0]=true);if(work==null)return false;work.addPropertyChangeListener(e->{if(e.getNewValue()==SwingWorker.StateValue.DONE)loop.exit();});loop.enter();return committed[0];}
-    public void actionPerformed(ActionEvent ev){Object source=ev.getSource();if(source==btnSave)save();else if(source==btnDelete)delete();else if(source==btnChooseFont)r.a(chooseFontListener).a();else if(source==btnSetContent)editContent();else if(source==btnPrePage){curPage--;changePage();}else if(source==btnNextPage){curPage++;changePage();}else if(source==tfCurPage){try{curPage=(int)value(tfCurPage)-1;changePage();}catch(Exception e){failure(e);}}else if(source==cbSettings&&!binding&&cbSettings.getSelectedItem() instanceof PageInfo)setPageInfo((PageInfo)cbSettings.getSelectedItem());}
-    public Component createCanvas(){notePanel=new g();changePage();return notePanel;}
+    public void actionPerformed(ActionEvent ev){Object source=ev.getSource();if(source==btnSave)save();else if(source==btnDelete)delete();else if(source==btnChooseFont)r.a(chooseFontListener).a();else if(source==btnSetContent)editContent();else if(source==btnPrePage){curPage--;changePage();if(notePanel!=null)notePanel.scrollToPage(curPage);}else if(source==btnNextPage){curPage++;changePage();if(notePanel!=null)notePanel.scrollToPage(curPage);}else if(source==tfCurPage){try{curPage=(int)value(tfCurPage)-1;changePage();if(notePanel!=null)notePanel.scrollToPage(curPage);}catch(Exception e){failure(e);}}else if(source==cbSettings&&!binding&&cbSettings.getSelectedItem() instanceof PageInfo)setPageInfo((PageInfo)cbSettings.getSelectedItem());}
+    public Component createCanvas(){captureView();notePanel=new g();notePanel.attachEditor(this);changePage();notePanel.setEditing(editToggle.isSelected());if(viewCaptured){notePanel.a(viewAngle);notePanel.setDisplayScale(viewScale);pendingViewRestore=true;SwingUtilities.invokeLater(this::restoreView);}return notePanel;}
     public void onActive(){sidebar=NoteSidebarView.attach(this);changePage();}
-    public void onDeactive(){if(sidebar!=null){sidebar.detach();sidebar=null;}/* Submitted edits still belong to this tab. */}
+    public void onDeactive(){finishEditorComposition();captureView();saveRecoveryAsync();if(sidebar!=null){sidebar.detach();sidebar=null;}/* Submitted edits still belong to this tab. */}
     public String toString(){return "笔记";}
     public ImageIcon getIcon(){return new ImageIcon(L.b("note.png"));}
     public void setScale(float scale){}
@@ -342,16 +380,132 @@ public class NoteTab extends BaseTab implements ActionListener {
     public int getPageNum(){return exportLayout().pages.size();}
     public int getCurrentPageIndex(){return curPage;}
     public String currentPageSource(){return "笔记当前页 "+(layout.pages.isEmpty()?0:curPage+1)+"/"+layout.pages.size();}
-    public boolean beginMachineJob(){if(isBusy()||layout.pages.isEmpty()||layout.pages.get(curPage).paths.isEmpty())return false;com.kenjoy.kenjoycnc.c.a generator=getGcodeGenerator();if(generator==null)return false;machineJobSource=currentPageSource();machineJobGenerator=generator;return true;}
+    public boolean beginMachineJob(){if(!isOutputReady()||layout.pages.isEmpty()||layout.pages.get(curPage).paths.isEmpty())return false;com.kenjoy.kenjoycnc.c.a generator=getGcodeGenerator();if(generator==null)return false;machineJobSource=currentPageSource();machineJobGenerator=generator;return true;}
     public void endMachineJob(){machineJobGenerator=null;machineJobSource=null;}
     public String machineJobSource(){return machineJobSource;}
     public NoteLayout exportLayout(){NoteExportHooks.Job job=NoteExportHooks.current(this);return job==null?layout:job.layout;}
-    public com.kenjoy.kenjoycnc.c.a getGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generator(job.pageIndex);if(machineJobGenerator!=null)return machineJobGenerator;if(layout.pages.isEmpty()||isBusy())return null;return new com.kenjoy.kenjoycnc.c.c(notePanel.a(L.b(layout.pages.get(curPage).paths)),Settings.getInst().nearDst,false);}
-    public List getExportGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generators();List result=new ArrayList();if(isBusy())return result;for(NoteLayout.Page p:layout.pages)result.add(new com.kenjoy.kenjoycnc.c.c(notePanel.a(L.b(p.paths)),Settings.getInst().nearDst,false));return result;}
-    public BufferedImage renderToImage(int page){NoteExportHooks.Job job=NoteExportHooks.current(this);NoteLayout l=job==null?layout:job.layout;NoteDocument d=job==null?document:job.document;return image(l,d,page,job==null?Settings.getInst().dpi:job.dpi);}
+    public com.kenjoy.kenjoycnc.c.a getGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generator(job.pageIndex);if(machineJobGenerator!=null)return machineJobGenerator;if(layout.pages.isEmpty()||!isOutputReady())return null;return new com.kenjoy.kenjoycnc.c.c(notePanel.a(L.b(layout.pages.get(curPage).paths)),Settings.getInst().nearDst,false);}
+    public List getExportGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generators();List result=new ArrayList();if(!isOutputReady())throw new IllegalStateException(outputReadinessMessage());for(NoteLayout.Page p:layout.pages)result.add(new com.kenjoy.kenjoycnc.c.c(notePanel.a(L.b(p.paths)),Settings.getInst().nearDst,false));return result;}
+    public BufferedImage renderToImage(int page){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job==null&&!isOutputReady())throw new IllegalStateException(outputReadinessMessage());NoteLayout l=job==null?layout:job.layout;NoteDocument d=job==null?document:job.document;return image(l,d,page,job==null?Settings.getInst().dpi:job.dpi);}
     public static BufferedImage image(NoteLayout layout,NoteDocument d,int index,float dpi){if(index<0||index>=layout.pages.size())throw new IllegalArgumentException("页码不存在");double width=d.page.pageWidth*(double)dpi/25.4,height=d.page.pageHeight*(double)dpi/25.4;if(!Double.isFinite(width)||!Double.isFinite(height)||width<1||height<1||width>12000||height>12000||width*height>24_000_000)throw new IllegalArgumentException("导出页面尺寸过大（最多 2400 万像素）");int w=(int)Math.round(width),h=(int)Math.round(height);BufferedImage img=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);Graphics2D out=img.createGraphics();out.setColor(Color.WHITE);out.fillRect(0,0,w,h);out.setColor(Color.BLACK);out.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);out.draw(NoteLayout.path(layout.pages.get(index).paths));out.dispose();return img;}
     public List machinePaths(NoteLayout.Page page){return notePanel.a(L.b(page.paths));}
     public java.awt.geom.AffineTransform machineTransform(){com.kenjoy.kenjoycnc.g.e basis=new com.kenjoy.kenjoycnc.g.e();basis.a(0,0);basis.b(1024,0);basis.b(0,1024);List result=notePanel.a(Collections.singletonList(basis));float[] xy=((com.kenjoy.kenjoycnc.g.e)result.get(0)).a();return new java.awt.geom.AffineTransform((xy[2]-xy[0])/1024,(xy[3]-xy[1])/1024,(xy[4]-xy[0])/1024,(xy[5]-xy[1])/1024,xy[0],xy[1]);}
+
+    public NoteEditSession session(){return editorSession;}
+    public NoteEditGeometry geometry(){if(editGeometry==null)refreshEditGeometry();return editGeometry;}
+    public float scale(){return notePanel==null?1:notePanel.displayScale();}
+    private void validatePageCandidate(NoteDocument d){NoteEditGeometry.approximate(d,Settings.getInst().dpi,null);for(float[] values:new float[][]{d.shapes.randomFontSize,d.shapes.randomXScale,d.shapes.randomYScale,d.shapes.randomRotate,d.shapes.randomSpace}){if(values==null||values.length!=2||!Float.isFinite(values[0])||!Float.isFinite(values[1]))throw new IllegalArgumentException("随机参数无效");}}
+    private void restoreInputDefaults(){FontsDialogData f=(FontsDialogData)Storage.getStore(FontsDialogData.class);if(f.fontsName!=null&&f.fontsName.length>0){pageInfo.fontPath=f.fontsName.clone();pageInfo.fontChance=f.chance==null?null:f.chance.clone();}captureInputFonts();}
+    private void captureInputFonts(){if(pageInfo!=null&&editorSession!=null)editorSession.setInputFonts(pageInfo.fontPath,pageInfo.fontChance);}
+    private void refreshEditGeometry(){
+        try{displayLayout=NoteEditGeometry.approximate(document,Settings.getInst().dpi,displayLayout==null?layout:displayLayout);editGeometry=new NoteEditGeometry(displayLayout,36);}
+        catch(Exception e){inlineError=e.getMessage();if(editGeometry==null){NoteDocument safe=new NoteDocument();safe.page=new PageInfo("默认",210,297,20,20,20,20,30,95,true);displayLayout=NoteEditGeometry.approximate(safe,96,null);editGeometry=new NoteEditGeometry(displayLayout,36);}}
+    }
+    public void changed(){
+        if(pending!=null){++request;pending.cancel(true);pending=null;}
+        document=editorSession.mutableDocument();content=new StringBuffer(document.text);contentSet=document.format;documentState="";inlineError=null;
+        layoutQueued=true;refreshEditGeometry();if(notePanel!=null)notePanel.refreshEditor();layoutTimer.restart();recoveryTimer.restart();selectionChanged();
+    }
+    public void selectionChanged(){
+        if(notePanel!=null&&notePanel.isEditing()){
+            selection.clear();int start=editorSession.selectionStart(),end=editorSession.selectionEnd(),offset=0;List<Long> ids=new ArrayList<Long>();
+            for(NoteDocument.Atom atom:document.atoms){int next=offset+atom.text.length();if(offset<end&&next>start&&atom.drawable())ids.add(atom.id);offset=next;}selection.add(ids,false);
+            int caret=editorSession.caret();boolean backward=caretBackward();boolean moved=caret!=observedCaret||backward!=observedCaretBackward;observedCaret=caret;observedCaretBackward=backward;
+            if(!changingPage&&moved){int selectedPage=caretPage();if(curPage!=selectedPage){curPage=selectedPage;changePage();}else tfCurPage.setValue(curPage+1);}
+        }
+        updateSelectionControls();
+    }
+    public void failure(Throwable error){reportFailure(error);}
+    private boolean caretBackward(){return notePanel!=null&&notePanel.textEditor()!=null&&notePanel.textEditor().getCaret() instanceof DefaultCaret&&((DefaultCaret)notePanel.textEditor().getCaret()).getDotBias()==Position.Bias.Backward;}
+    private int caretPage(){return Math.max(0,geometry().caret(editorSession.caret(),caretBackward()).page);}
+    public void history(boolean forward){editorHistory(forward);}
+    private void editorHistory(boolean forward){
+        finishEditorComposition();String[] inputFonts=editorSession.inputFonts();int[] inputChances=editorSession.inputChances();boolean changed=forward?editorSession.redo():editorSession.undo();if(!changed)return;
+        changed();documentState=semanticState(document);if(notePanel!=null)notePanel.syncEditor();setPageInfo(document.page);pageInfo.fontPath=inputFonts;pageInfo.fontChance=inputChances;captureInputFonts();
+    }
+    private void setEditing(boolean active){
+        boolean previous=notePanel!=null&&notePanel.isEditing();
+        try{if(active&&hasUnappliedPageSettings()){NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();d.page=readPage();d.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));validatePageCandidate(d);editorSession.commit(t,d,NoteEditSession.Kind.OTHER);document=editorSession.mutableDocument();changed();}
+            editToggle.setSelected(active);editToggle.setText(active?"退出编辑模式":"进入编辑模式");captureInputFonts();refreshEditGeometry();if(notePanel!=null)notePanel.setEditing(active);selectionChanged();
+        }catch(Exception e){editToggle.setSelected(previous);editToggle.setText(previous?"退出编辑模式":"进入编辑模式");reportFailure(e);}
+    }
+    public void setInlineEditing(boolean active){setEditing(active);}
+    public boolean isInlineEditing(){return notePanel!=null&&notePanel.isEditing();}
+    private void finishEditorComposition(){if(notePanel!=null&&notePanel.textEditor()!=null)notePanel.textEditor().finishComposition();}
+    private void buildInlineLayout(){
+        if(!layoutQueued)return;if(inlinePending!=null){return;}if(pending!=null||loading!=null){layoutTimer.restart();return;}
+        layoutQueued=false;final NoteDocument candidate=editorSession.snapshot();final long revision=editorSession.revision();final float dpi=Settings.getInst().dpi;
+        inlinePending=new SwingWorker<Prepared,Void>(){
+            protected Prepared doInBackground()throws Exception{
+                NoteFonts f=fonts();
+                return new Prepared(candidate,new NoteLayoutEngine(f,dpi).build(candidate));
+            }
+            protected void done(){
+                try{Prepared result=get();boolean followCaret=notePanel!=null&&notePanel.isEditing()&&curPage==caretPage();if(editorSession.adoptLayout(result.document,revision)){
+                    document=editorSession.mutableDocument();layout=result.layout;layoutRevision=revision;inlineError=null;lastFailure=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);documentState=semanticState(document);
+                    content=new StringBuffer(document.text);pageDatas.clear();for(NoteLayout.Page p:layout.pages)pageDatas.add(new com.kenjoy.kenjoycnc.l.f(0,p.paths,Collections.emptyList()));
+                    curPage=followCaret?Math.min(caretPage(),Math.max(0,layout.pages.size()-1)):Math.max(0,Math.min(curPage,layout.pages.size()-1));changePage();message("笔迹已更新。"+(isDirty()?"文章有未保存修改。":""));
+                }}catch(Exception e){if(revision==editorSession.revision()){Throwable cause=e;while(cause.getCause()!=null)cause=cause.getCause();inlineError=cause.getMessage()==null?cause.toString():cause.getMessage();lastFailure=inlineError;message("正文已保留，笔迹尚未完成："+inlineError);}}
+                finally{inlinePending=null;if(revision!=editorSession.revision())layoutQueued=true;if(layoutQueued)layoutTimer.restart();selectionChanged();restoreView();recoveryTimer.restart();}
+            }
+        };inlinePending.execute();selectionChanged();
+    }
+    public boolean isOutputReady(){return !isBusy()&&inlineError==null&&layoutRevision==editorSession.revision()&&layout.missing.isEmpty()&&!hasUnappliedPageSettings();}
+    public String outputReadinessMessage(){if(!layout.missing.isEmpty())return "文章仍有缺字红框，请修复后再导出或开始书写。";if(inlineError!=null)return "笔迹尚未生成："+inlineError;if(hasUnappliedPageSettings())return "请先应用页面版式。";return "请等待当前正文的笔迹生成完成。";}
+    public String editSourceIdentity(){return documentId+":"+editorSession.contentIdentity()+":"+curPage+":"+(notePanel==null?0:notePanel.processingAngle());}
+    public void showEditorSettings(){
+        try{JComboBox<String> policy=new JComboBox<String>(new String[]{"自动保留本地恢复稿","关闭前询问保存"});policy.setSelectedIndex(NoteRecovery.closePolicy()==NoteRecovery.ClosePolicy.AUTO_RECOVER?0:1);
+            JPanel pane=new JPanel(new BorderLayout(6,6));pane.add(new JLabel("关闭时未保存内容的处理方式"),BorderLayout.NORTH);pane.add(policy,BorderLayout.CENTER);
+            if(JOptionPane.showConfirmDialog(this,pane,"编辑设置",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE)==JOptionPane.OK_OPTION)NoteRecovery.setClosePolicy(policy.getSelectedIndex()==0?NoteRecovery.ClosePolicy.AUTO_RECOVER:NoteRecovery.ClosePolicy.ASK_SAVE);
+        }catch(Exception e){reportFailure(e);}
+    }
+    private SwingWorker<Void,Void> recoveryWorker;
+    private boolean editorClosing;
+    private void captureView(){
+        if(notePanel==null)return;viewAngle=notePanel.processingAngle();viewScale=notePanel.displayScale();viewCaptured=true;
+        if(!pendingViewRestore&&notePanel.getParent() instanceof JViewport)viewPosition=((JViewport)notePanel.getParent()).getViewPosition();
+    }
+    private void restoreView(){
+        if(!pendingViewRestore||notePanel==null||isBusy()||!(notePanel.getParent() instanceof JViewport))return;
+        JViewport viewport=(JViewport)notePanel.getParent();Dimension extent=viewport.getExtentSize(),size=notePanel.getPreferredSize();
+        if(extent.width<=0||extent.height<=0)return;
+        viewport.setViewSize(size);viewport.setViewPosition(new Point(Math.max(0,Math.min(viewPosition.x,size.width-extent.width)),Math.max(0,Math.min(viewPosition.y,size.height-extent.height))));
+        viewPosition=viewport.getViewPosition();pendingViewRestore=false;
+    }
+    private boolean awaitingInitialRecovery(){return recoveryRestoring&&editorSession.revision()==recoveryStartRevision;}
+    private NoteRecovery.Snapshot recoverySnapshot(){
+        captureView();NoteRecovery.Snapshot value=new NoteRecovery.Snapshot();value.documentId=documentId;value.document=editorSession.snapshot();value.savedState=savedDocument;value.file=documentFile==null?null:documentFile.toAbsolutePath().toString();value.dirty=isDirty();value.editing=editToggle.isSelected();value.anchor=editorSession.anchor();value.dot=editorSession.caret();value.revision=editorSession.revision();value.page=Math.max(0,curPage);value.processingAngle=viewAngle;
+        value.scrollX=Math.max(0,viewPosition.x);value.scrollY=Math.max(0,viewPosition.y);return value;
+    }
+    private void saveRecoveryAsync(){
+        if(editorClosing||awaitingInitialRecovery())return;if(recoveryWriting){recoveryAgain=true;return;}final NoteRecovery.Snapshot snapshot=recoverySnapshot();recoveryWriting=true;
+        recoveryWorker=new SwingWorker<Void,Void>(){protected Void doInBackground()throws Exception{NoteRecovery.save(snapshot);return null;}protected void done(){recoveryWriting=false;try{get();}catch(Exception e){reportFailure(e);}if(recoveryAgain&&!editorClosing){recoveryAgain=false;recoveryTimer.restart();}}};recoveryWorker.execute();
+    }
+    private void restoreRecovery(){
+        final long restoreRevision=editorSession.revision(),restoreRequest=request;
+        new SwingWorker<NoteRecovery.Snapshot,Void>(){protected NoteRecovery.Snapshot doInBackground()throws Exception{return NoteRecovery.load();}protected void done(){try{
+            NoteRecovery.Snapshot value=get();if(editorClosing||value==null||!document.text.isEmpty()||editorSession.revision()!=restoreRevision||request!=restoreRequest||pending!=null||loading!=null)return;documentId=value.documentId;
+            editorSession.reset(value.document);document=editorSession.mutableDocument();editorSession.setSelection(value.anchor,value.dot);documentFile=value.file==null?null:Paths.get(value.file);savedDocument=value.savedState==null?"":value.savedState;documentState=semanticState(document);if(value.dirty)editorSession.markUnsaved();else editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();curPage=value.page;changed();
+            viewAngle=value.processingAngle;viewPosition=new Point(value.scrollX,value.scrollY);viewCaptured=true;pendingViewRestore=true;
+            if(notePanel!=null){notePanel.a(viewAngle);viewScale=notePanel.displayScale();notePanel.syncEditor();}setEditing(value.editing);
+            SwingUtilities.invokeLater(NoteTab.this::restoreView);message("已恢复上次编辑的文章。");
+        }catch(Exception e){reportFailure(e);}finally{recoveryRestoring=false;}}}.execute();
+    }
+    private void waitForRecoveryWriter()throws InterruptedException{if(recoveryWorker!=null)try{recoveryWorker.get();}catch(java.util.concurrent.ExecutionException ignored){/* The current synchronous save is retried below. */}}
+    public void activatePreviewPage(int page){curPage=Math.max(0,Math.min(page,Math.max(0,geometry().layout.pages.size()-1)));changePage();}
+    public boolean prepareEditorClose(){
+        finishEditorComposition();try{
+            if(awaitingInitialRecovery()){editorClosing=true;recoveryTimer.stop();return true;}
+            if(NoteRecovery.closePolicy()==NoteRecovery.ClosePolicy.ASK_SAVE&&isDirty()){
+                int answer=JOptionPane.showConfirmDialog(this,"文章有未保存修改，是否保存？","关闭文章",JOptionPane.YES_NO_CANCEL_OPTION);
+                if(answer==JOptionPane.CANCEL_OPTION||answer==JOptionPane.CLOSED_OPTION)return false;
+                if(answer==JOptionPane.YES_OPTION&&!saveDocumentCurrent())return false;
+                if(answer==JOptionPane.NO_OPTION){editorClosing=true;recoveryTimer.stop();waitForRecoveryWriter();NoteRecovery.clear();return true;}
+            }
+            editorClosing=true;recoveryTimer.stop();waitForRecoveryWriter();NoteRecovery.save(recoverySnapshot());return true;
+        }catch(Exception e){editorClosing=false;reportFailure(e);return false;}
+    }
+
     static PageInfo access$0(NoteTab tab){return tab.pageInfo;}
     static void access$1(NoteTab tab){tab.applyFonts();}
 }

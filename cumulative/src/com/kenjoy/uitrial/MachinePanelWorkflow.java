@@ -21,7 +21,28 @@ public final class MachinePanelWorkflow {
     private static final Set<Object> ATTEMPTED_DEVICES=Collections.newSetFromMap(new ConcurrentHashMap<Object,Boolean>());
     private static final Set<Object> CANCELED_WORKERS=Collections.newSetFromMap(new WeakHashMap<Object,Boolean>());
     private static final Set<Object> SENT_WORKERS=Collections.newSetFromMap(new WeakHashMap<Object,Boolean>());
-    private static final class TaskToken {volatile boolean canceled;boolean sendAttempted;}
+    private static final class TaskToken {
+        volatile boolean canceled;boolean sendAttempted;
+        final NoteSource noteSource;
+        TaskToken(NoteSource source){noteSource=source;}
+    }
+    /** Outlives the generation snapshot; this belongs to the task until its terminal state. */
+    private static final class NoteSource {
+        final Object owner;
+        final String identity,label;
+        final Method identityMethod;
+        NoteSource(Object owner,String label)throws Exception{
+            this.owner=owner;this.label=label;
+            identityMethod=owner.getClass().getMethod("editSourceIdentity");
+            Object captured=identityMethod.invoke(owner);
+            if(!(captured instanceof String))throw new IllegalStateException("文章版本标识不可用");
+            identity=(String)captured;
+        }
+        String notice(){
+            try{return identity.equals(identityMethod.invoke(owner))?"":"当前编辑稿已变化，仅用于下次书写";}
+            catch(Exception error){return "当前编辑稿版本暂不可比较；任务继续使用启动时内容";}
+        }
+    }
     private final Object app,device;
     private final JFrame frame;
     private final JPanel controls;
@@ -29,6 +50,7 @@ public final class MachinePanelWorkflow {
     private final JLabel source;
     private final JComboBox modes;
     private final javax.swing.Timer timer;
+    private long preparationStartedAt;
     private Object frozenNote;
     private String frozenSource;
     private String activeSource;
@@ -77,7 +99,12 @@ public final class MachinePanelWorkflow {
     private static Object cancelHandoff(Object device){synchronized(AUTO_ZERO_LOCK){Object worker=AUTO_ZERO_WORKERS.remove(device);if(worker!=null)CANCELED_WORKERS.add(worker);return worker;}}
     private static boolean taskCurrent(Object device,Object worker){TaskToken token=WORKER_TASKS.get(worker);return token!=null&&!token.canceled&&CURRENT_TASKS.get(device)==token;}
     private static void clearTask(Object device){synchronized(AUTO_ZERO_LOCK){CURRENT_TASKS.remove(device);}}
-    private static void beginTask(Object device){synchronized(AUTO_ZERO_LOCK){SENT_DEVICES.remove(device);ATTEMPTED_DEVICES.remove(device);ACTIVE_GENERATORS.remove(device);CURRENT_TASKS.put(device,new TaskToken());}}
+    private static void beginTask(Object device){beginTask(device,null);}
+    private static void beginTask(Object device,NoteSource source){synchronized(AUTO_ZERO_LOCK){SENT_DEVICES.remove(device);ATTEMPTED_DEVICES.remove(device);ACTIVE_GENERATORS.remove(device);CURRENT_TASKS.put(device,new TaskToken(source));}}
+    static String editingNotice(Object device){
+        NoteSource source;synchronized(AUTO_ZERO_LOCK){TaskToken token=CURRENT_TASKS.get(device);source=token==null?null:token.noteSource;}
+        return source==null?"":source.notice();
+    }
     private static TaskToken cancelTask(Object device){synchronized(AUTO_ZERO_LOCK){TaskToken token=CURRENT_TASKS.get(device);if(token!=null)token.canceled=true;cancelHandoff(device);return token;}}
     public static void bindGenerator(Object device,Object worker){synchronized(AUTO_ZERO_LOCK){TaskToken token=CURRENT_TASKS.get(device);if(token!=null)WORKER_TASKS.put(worker,token);}}
     public static boolean allowAutoZeroSend(Object worker){
@@ -188,6 +215,13 @@ public final class MachinePanelWorkflow {
         for(JButton button:new JButton[]{sleep,home,unlock,reset})confirmBeforeAction(button);
         java.util.List<ActionListener> original=new ArrayList<ActionListener>();for(ActionListener listener:write.getActionListeners())if(listener==device){write.removeActionListener(listener);original.add(listener);}
         write.addActionListener(event->startWrite(event,original));
+        java.util.List<ActionListener> stopping=new ArrayList<ActionListener>();for(ActionListener listener:stop.getActionListeners())if(listener==device){stop.removeActionListener(listener);stopping.add(listener);}
+        stop.addActionListener(event->{
+            boolean interrupted=activeSource!=null;
+            if(interrupted)cancelTask(device);
+            try{for(ActionListener listener:stopping)listener.actionPerformed(event);}
+            finally{if(interrupted){autoZeroWaiting=false;writeFailureLatch=true;handoffFailureMessage="任务已终止；确认设备停止后可清除中断任务";}refresh();}
+        });
         for(JButton button:new JButton[]{load,clear,stop})button.addActionListener(e->SwingUtilities.invokeLater(this::refresh));
         installFirmwareFailures();
         installSenderCompletion();
@@ -242,7 +276,7 @@ public final class MachinePanelWorkflow {
             if(release)CURRENT_TASKS.remove(device,token);
         }
         if(release){activeSource=null;writeFailureLatch=false;runningSeen=false;releaseSnapshot();unlockModes();handoffFailureMessage="设备准备中断，书写未启动";}
-        else{if(activeSource!=null)writeFailureLatch=true;if(running)runningSeen=true;}
+        else{if(activeSource!=null){writeFailureLatch=true;handoffFailureMessage="任务已中断；确认设备停止后可清除中断任务";}if(running)runningSeen=true;}
         refreshDeviceState();refresh();
     }
 
@@ -264,9 +298,11 @@ public final class MachinePanelWorkflow {
     private void startWrite(ActionEvent event,java.util.List<ActionListener> original){
         boolean vendorInvoked=false;
         try{
+            if(writeFailureLatch){recoverInterruptedTask();return;}
+            requireConnection();
             if(sourceLocked(app)){notice("已有书写任务正在准备或执行，请等待任务结束。");return;}
             if(alarmed()){notice("设备处于报警状态，请先排查原因并重新确认坐标。");return;}
-            File external=(File)field(device,"F");Object mode=modes.getSelectedItem();
+            File external=(File)field(device,"F");Object mode=modes.getSelectedItem();NoteSource noteSource=null;
             if(machineType().equals("K_AT")){
                 int count=katQueueCount();if(count==0){notice("待写队列没有未完成的文件，请先添加书写文件。");return;}
                 frozenSource="设备队列："+count+" 个待写文件";
@@ -274,20 +310,22 @@ public final class MachinePanelWorkflow {
                 if(!external.isFile()||external.length()==0){notice("外部 G-code 文件为空或不存在，请重新选择。");return;}
                 frozenSource="外部 G-code："+external.getName();
             }else if(isNote(mode)){
+                if(!Boolean.TRUE.equals(mode.getClass().getMethod("isOutputReady").invoke(mode))){notice(String.valueOf(mode.getClass().getMethod("outputReadinessMessage").invoke(mode)));return;}
                 if(!Boolean.TRUE.equals(mode.getClass().getMethod("beginMachineJob").invoke(mode))){notice("当前笔记页没有可写入的刀路，请先完成排版。");return;}
                 frozenNote=mode;frozenSource=String.valueOf(mode.getClass().getMethod("machineJobSource").invoke(mode));
+                noteSource=new NoteSource(mode,frozenSource);
             }else{
                 Object generator=mode==null?null:mode.getClass().getMethod("getGcodeGenerator").invoke(mode);
                 if(generator==null){notice("当前模式没有可写入的刀路，请先更新内容。");return;}
                 frozenSource="当前画布："+String.valueOf(mode);
             }
-            beginTask(device);
-            activeSource=frozenSource;runningSeen=false;autoZeroWaiting=false;writeFailureLatch=false;handoffFailureMessage=null;modesEnabledBefore=modes.isEnabled();modeLocked=true;modes.setEnabled(false);write.setEnabled(false);refresh();
+            beginTask(device,noteSource);
+            activeSource=frozenSource;preparationStartedAt=System.currentTimeMillis();runningSeen=false;autoZeroWaiting=false;writeFailureLatch=false;handoffFailureMessage=null;modesEnabledBefore=modes.isEnabled();modeLocked=true;modes.setEnabled(false);write.setEnabled(false);refresh();
             boolean kat=machineType().equals("K_AT");JLabel status=(JLabel)field(device,"r");String priorStatus=status.getText();
             if(!kat)status.setText("正在检查书写来源");
             for(ActionListener listener:original){vendorInvoked=true;listener.actionPerformed(event);}
             if(kat){releaseSnapshot();if(!(pause.isEnabled()||stop.isEnabled())){activeSource=null;clearTask(device);unlockModes();}}
-            else if("正在检查书写来源".equals(status.getText())){status.setText(priorStatus);releaseSnapshot();activeSource=null;clearTask(device);unlockModes();}
+            else if("正在检查书写来源".equals(status.getText())){status.setText(priorStatus);releaseSnapshot();activeSource=null;clearTask(device);unlockModes();notice("设备未启动任务，请检查连接和机器状态后重试。");}
             SwingUtilities.invokeLater(this::refresh);
         }catch(Exception error){
             boolean possiblySubmitted=vendorInvoked;
@@ -299,6 +337,49 @@ public final class MachinePanelWorkflow {
         }
     }
     private void notice(String message){JOptionPane.showMessageDialog(frame,message,"书写",JOptionPane.WARNING_MESSAGE);}
+    private void requireConnection()throws Exception{
+        if(!machineConnected()||!transportOpen())throw new java.io.IOException("设备连接已断开或尚未验证，请先搜索并重新连接机器。");
+    }
+    private boolean transportOpen()throws Exception{
+        Object manager=Class.forName("com.kenjoy.kenjoycnc.machine.g").getMethod("a").invoke(null);
+        Object transport=manager.getClass().getMethod("g").invoke(manager);
+        return Boolean.TRUE.equals(transport.getClass().getMethod("b").invoke(transport));
+    }
+    private void recoverInterruptedTask()throws Exception{
+        boolean generating;synchronized(AUTO_ZERO_LOCK){generating=ACTIVE_GENERATORS.containsKey(device);}
+        if(generating){notice("刀路生成仍在退出，请稍后再清除中断任务。");return;}
+        if(JOptionPane.showConfirmDialog(frame,"请确认机器已经停止。\n清除后会丢弃旧任务；如需继续书写，请重新确认起写位置，再点击书写。","清除中断任务",JOptionPane.YES_NO_OPTION,JOptionPane.WARNING_MESSAGE)!=JOptionPane.YES_OPTION)return;
+        synchronized(AUTO_ZERO_LOCK){
+            if(ACTIVE_GENERATORS.containsKey(device))return;
+            cancelTask(device);
+            SENT_DEVICES.remove(device);ATTEMPTED_DEVICES.remove(device);clearTask(device);
+        }
+        Object manager=Class.forName("com.kenjoy.kenjoycnc.machine.g").getMethod("a").invoke(null);
+        Object sender=manager.getClass().getMethod("i").invoke(manager);
+        synchronized(sender){
+            if(machineType().equals("K_AT")){
+                Object queue=Class.forName("com.kenjoy.kenjoycnc.machine.kat.c").getMethod("a").invoke(null);
+                sender.getClass().getMethod("removeEventListener",String.class,Class.forName("flash.events.IEventListener")).invoke(sender,"Complete",queue);
+                queue.getClass().getMethod("b").invoke(queue);
+            }
+            sender.getClass().getMethod("c").invoke(sender);
+        }
+        autoZeroWaiting=false;activeSource=null;writeFailureLatch=false;releaseSnapshot();unlockModes();
+        handoffFailureMessage="旧任务已清除；请重新确认起写位置";refresh();
+    }
+    private boolean awaitingResponseTooLong()throws Exception{
+        if(activeSource==null||frozenSource!=null||writeFailureLatch)return false;
+        long since=preparationStartedAt;
+        if(!autoZeroWaiting){
+            Object manager=Class.forName("com.kenjoy.kenjoycnc.machine.g").getMethod("a").invoke(null);
+            Object sender=manager.getClass().getMethod("i").invoke(manager);
+            synchronized(sender){
+                if(!Boolean.TRUE.equals(sender.getClass().getMethod("i").invoke(sender))||((java.util.List)field(sender,"j")).isEmpty())return false;
+                since=((Number)field(sender,"t")).longValue();
+            }
+        }
+        return since>0&&System.currentTimeMillis()-since>=30000L;
+    }
     private boolean alarmed()throws Exception{if(!machineType().equals("Grbl"))return false;JLabel status=(JLabel)field(device,"J");String text=status.getText();return status.isVisible()&&text!=null&&text.toUpperCase(java.util.Locale.ROOT).contains("ALARM");}
     private boolean machineConnected()throws Exception{Object manager=Class.forName("com.kenjoy.kenjoycnc.machine.g").getMethod("a").invoke(null);Object controller=manager.getClass().getMethod("e").invoke(manager);return Boolean.TRUE.equals(controller.getClass().getMethod("p").invoke(controller));}
     private String machineType(){try{Field machineField=Class.forName("com.kenjoy.kenjoycnc.o.c").getDeclaredField("e");machineField.setAccessible(true);Object machine=machineField.get(null);Object type=field(machine,"type");return ((Enum)type).name();}catch(Exception error){throw new IllegalStateException("无法读取机器类型",error);}}
@@ -308,6 +389,7 @@ public final class MachinePanelWorkflow {
     private void refreshDeviceState(){try{Method method=device.getClass().getDeclaredMethod("g");method.setAccessible(true);method.invoke(device);}catch(Exception error){System.err.println("MACHINE_STATE_REFRESH "+error);}}
     private void refresh(){
         try{
+            refreshDeviceState();
             Dimension preferred=controls.getPreferredSize();
             if(preferred.height!=NativeDpi.px(365)){controls.setPreferredSize(new Dimension(preferred.width,NativeDpi.px(365)));controls.revalidate();}
             boolean running=pause.isEnabled()||stop.isEnabled();
@@ -323,6 +405,7 @@ public final class MachinePanelWorkflow {
             String label;
             if(handoffFailureMessage!=null)label=handoffFailureMessage;
             else if(frozenSource!=null)label="正在生成刀路："+frozenSource;
+            else if(awaitingResponseTooLong())label="等待设备应答较久；可终止任务后清除状态";
             else if(autoZeroWaiting)label="正在等待自动设原点完成："+activeSource;
             else if(activeSource!=null)label="正在书写："+activeSource;
             else if(machineType().equals("K_AT"))label="书写来源：设备队列（"+katQueueCount()+" 个待写文件）";
@@ -331,10 +414,14 @@ public final class MachinePanelWorkflow {
                 Object mode=modes.getSelectedItem();
                 label=isNote(mode)?"书写来源："+mode.getClass().getMethod("currentPageSource").invoke(mode):"书写来源：当前画布";
             }
-            source.setVisible(true);source.setText(clip(label,26));source.setToolTipText(label);
+            String editNotice=editingNotice(device);
+            source.setVisible(true);source.setText(clip((editNotice.isEmpty()?"":"编辑稿有变化 · ")+label,26));source.setToolTipText(label+(editNotice.isEmpty()?"":"；"+editNotice));
             clear.setEnabled(external!=null&&!running&&!sourceLocked(app));
             load.setEnabled(!running&&!sourceLocked(app));
-            if(sourceLocked(app)||alarmed())write.setEnabled(false);
+            write.setText(writeFailureLatch?"清除中断任务…":"书写");
+            write.setToolTipText(writeFailureLatch?"确认机器停止后丢弃旧任务；不会自动重新书写":!machineConnected()||!transportOpen()?"请先搜索并连接机器":null);
+            if(writeFailureLatch){synchronized(AUTO_ZERO_LOCK){write.setEnabled(!ACTIVE_GENERATORS.containsKey(device));}}
+            else if(sourceLocked(app)||alarmed()||!transportOpen())write.setEnabled(false);
         }catch(Exception error){System.err.println("MACHINE_PANEL_STATUS "+error);}
     }
     private static String clip(String text,int limit){return text.length()<=limit?text:text.substring(0,limit-1)+"…";}

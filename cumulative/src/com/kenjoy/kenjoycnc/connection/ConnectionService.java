@@ -26,10 +26,10 @@ public final class ConnectionService {
     private final JCheckBox automatic=new JCheckBox("自动连接");private final JButton search=new JButton("搜索并连接"),cancel=new JButton("取消搜索");
     private final JButton connect;private final Properties remembered=new Properties();
     private final Path memory=Paths.get(System.getProperty("user.home"),".KenjoyDraw","connection.properties");
-    private volatile boolean busy,canceled,suppressed,closed;private volatile DevicePort connected;
+    private volatile boolean busy,canceled,suppressed,closed,disconnecting;private volatile DevicePort connected;
     private String fingerprint="";private volatile long deadline;
     public static boolean probing(){return probeMode;}
-    public static void transportFailed(String message){probeError=message;}
+    public static void transportFailed(String message){probeError=message;ConnectionService s=instance;if(s!=null&&!probeMode&&!s.closed)s.disconnect(false);}
     public static String firmwareLine(String line){
         if(probeFirmware.equalsIgnoreCase("Grbl")){
             if(line.matches("Grbl [0-9]+\\.[0-9]+.*"))return line;
@@ -94,14 +94,59 @@ public final class ConnectionService {
         show("请选择 USB 设备（20 秒内可取消）");
         try{while(!done.await(50,TimeUnit.MILLISECONDS))check();check();if(choice.get()==null)throw new CancellationException();deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(15);return choice.get();}finally{SwingUtilities.invokeLater(()->dialog[0].dispose());}
     }
-    private void disconnect(boolean manual){suppressed=true;canceled=true;connected=null;worker.execute(()->{try{g.a().g().c();}finally{show(manual?"已手动断开；点击搜索可重新连接":"设备已断开；任务不会自动恢复，点击搜索重新连接");}});}
+    private synchronized void disconnect(boolean manual){
+        if(closed||disconnecting)return;
+        disconnecting=true;suppressed=true;canceled=true;connected=null;
+        worker.execute(()->{try{g.a().g().c();}finally{
+            Object sender=g.a().i();synchronized(sender){g.a().i().c();}
+            disconnecting=false;show(manual?"已手动断开；点击搜索可重新连接":"设备已断开；任务已中断，点击搜索重新连接");
+        }});
+    }
     private List<DevicePort> ports()throws Exception{return discovery==null?enumerate():discovery.call();}
     private List<DevicePort> enumerate()throws Exception{
         if(Boolean.getBoolean("kvenjoy.connection.disabled"))return Collections.emptyList();
-        String script="$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new();@(Get-CimInstance Win32_PnPEntity -Filter \"Name LIKE '%(COM%'\" | Select-Object Name,PNPDeviceID)|ConvertTo-Json -Compress";
+        String script="$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[Text.UTF8Encoding]::new();@(Get-CimInstance Win32_PnPEntity -Filter \"Name LIKE '%(COM%'\" | Select-Object Name,PNPDeviceID)|ConvertTo-Json -Compress";
         String encoded=Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
-        Process p=new ProcessBuilder("powershell.exe","-NoProfile","-NonInteractive","-WindowStyle","Hidden","-EncodedCommand",encoded).redirectErrorStream(true).start();
-        ByteArrayOutputStream out=new ByteArrayOutputStream();Thread reader=new Thread(()->{try(InputStream in=p.getInputStream()){byte[] b=new byte[4096];for(int n;(n=in.read(b))!=-1;)if(out.size()<1048576)out.write(b,0,n);}catch(IOException ignored){}},"serial-discovery-output");reader.setDaemon(true);reader.start();
-        long limit=System.nanoTime()+TimeUnit.SECONDS.toNanos(6);try{while(!p.waitFor(100,TimeUnit.MILLISECONDS)){if(closed||busy&&canceled)throw new CancellationException();if(System.nanoTime()>limit)throw new TimeoutException("Windows 设备查询超时");}reader.join(1000);if(p.exitValue()!=0)throw new IOException("Windows 设备查询失败");String json=new String(out.toByteArray(),StandardCharsets.UTF_8).trim();List<DevicePort> ports=new ArrayList<>();if(json.isEmpty())return ports;JsonElement root=new JsonParser().parse(json);JsonArray array;if(root.isJsonArray())array=root.getAsJsonArray();else{array=new JsonArray();array.add(root);}for(JsonElement element:array){JsonObject o=element.getAsJsonObject();String name=o.get("Name").getAsString(),id=o.get("PNPDeviceID").getAsString();java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\((COM[0-9]+)\\)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(name);if(m.find())ports.add(new DevicePort(m.group(1).toUpperCase(Locale.ROOT),name,id));}return ports;}finally{if(p.isAlive())p.destroyForcibly();}
+        return enumerateCommand(Arrays.asList("powershell.exe","-NoProfile","-NonInteractive","-WindowStyle","Hidden","-EncodedCommand",encoded),()->closed||busy&&canceled,6000);
+    }
+    static List<DevicePort> enumerateCommand(List<String> command,java.util.function.BooleanSupplier canceled,long timeoutMillis)throws Exception{
+        Process p=new ProcessBuilder(command).start();
+        FutureTask<String> output=new FutureTask<>(()->readDiscoveryOutput(p.getInputStream()));
+        FutureTask<Void> errors=new FutureTask<>(()->{try(InputStream in=p.getErrorStream()){byte[] buffer=new byte[4096];while(in.read(buffer)!=-1){/* Drain diagnostics separately; they are not JSON. */}}return null;});
+        Thread reader=new Thread(output,"serial-discovery-output"),errorReader=new Thread(errors,"serial-discovery-errors");
+        reader.setDaemon(true);errorReader.setDaemon(true);reader.start();errorReader.start();
+        long limit=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        try{
+            while(!p.waitFor(100,TimeUnit.MILLISECONDS)){
+                if(canceled.getAsBoolean())throw new CancellationException();
+                if(System.nanoTime()>limit)throw new TimeoutException("Windows 设备查询超时");
+            }
+            if(canceled.getAsBoolean())throw new CancellationException();
+            String json=output.get(1000,TimeUnit.MILLISECONDS).trim();errors.get(1000,TimeUnit.MILLISECONDS);
+            if(p.exitValue()!=0)throw new IOException("Windows 设备查询失败（退出码 "+p.exitValue()+"）");
+            List<DevicePort> ports=new ArrayList<>();if(json.isEmpty())return ports;
+            JsonElement root=new JsonParser().parse(json);JsonArray array;
+            if(root.isJsonArray())array=root.getAsJsonArray();else{array=new JsonArray();array.add(root);}
+            for(JsonElement element:array){
+                JsonObject o=element.getAsJsonObject();String name=o.get("Name").getAsString(),id=o.get("PNPDeviceID").getAsString();
+                java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\((COM[0-9]+)\\)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(name);
+                if(m.find())ports.add(new DevicePort(m.group(1).toUpperCase(Locale.ROOT),name,id));
+            }
+            return ports;
+        }finally{
+            if(p.isAlive())p.destroyForcibly();
+            output.cancel(true);errors.cancel(true);
+        }
+    }
+    private static String readDiscoveryOutput(InputStream input)throws IOException{
+        try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            byte[] buffer=new byte[4096];int total=0;boolean oversized=false;
+            for(int n;(n=in.read(buffer))!=-1;){
+                if(n>1048576-total)oversized=true;
+                if(!oversized){out.write(buffer,0,n);total+=n;}
+            }
+            if(oversized)throw new IOException("Windows 设备查询结果过大");
+            return new String(out.toByteArray(),StandardCharsets.UTF_8);
+        }
     }
 }

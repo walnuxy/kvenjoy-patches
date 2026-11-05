@@ -2,7 +2,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 
-/** Synthetic 0.020 -> 0.021 migration helper; selected JAR supplies UpdatePatcher. */
+/** Synthetic published 0.024 -> 0.025 migration helper; selected JAR supplies UpdatePatcher. */
 public final class UpgradeChainChecks {
     static final String ID="A1B2C3D4E5F60718A1B2C3D4E5F60718";
     static final byte[] MACHINE=ID.substring(0,16).getBytes(StandardCharsets.US_ASCII);
@@ -23,6 +23,8 @@ public final class UpgradeChainChecks {
             new UpdatePatcher(root).apply(false);
         } else if (args[0].equals("rollback")) {
             new UpdatePatcher(root).rollback();
+        } else if (args[0].equals("verify")) {
+            System.out.println(UpdatePatcher.class.getDeclaredMethod("verify").invoke(new UpdatePatcher(root)));
         } else throw new IllegalArgumentException(args[0]);
         System.out.println(args[0]+" OK");
     }

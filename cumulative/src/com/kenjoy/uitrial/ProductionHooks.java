@@ -19,6 +19,7 @@ public final class ProductionHooks {
             frame.getRootPane().putClientProperty("modernization.production",Boolean.TRUE);
             TrialChrome.install(frame);
             DirectClose.install(frame);
+            EditorSettingsWorkflow.install(app);
             UiStyle style=new UiStyle();
             OpenFileWorkflow.install(app);
             NoteExportDialogWorkflow.install();
