@@ -17,11 +17,11 @@ public final class ConnectionChecks {
     static void call(Object o,String n,boolean b)throws Exception{Method m=o.getClass().getDeclaredMethod(n,boolean.class);m.setAccessible(true);m.invoke(o,b);}
     static void idle(ConnectionService s)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(12);while((Boolean)field(s,"busy")){if(System.nanoTime()>end)throw new AssertionError("worker timeout");Thread.sleep(20);}SwingUtilities.invokeAndWait(()->{});}
     public static final class App {final JFrame frame=new JFrame();final Device y=new Device();public App(){frame.add(y.panel);}public JFrame f(){return frame;}}
-    public static final class Device {final JButton c=new JButton("连接");final JComboBox<String> e=new JComboBox<>(new String[]{"115200"});final JPanel panel=new JPanel(new BorderLayout());Device(){panel.add(c,BorderLayout.NORTH);}}
+    public static final class Device {final JButton c=new JButton("连接");final JComboBox<String> e=new JComboBox<>(new String[]{"115200","9600"}),j=new JComboBox<>(new String[]{"COM4","COM15",""});final JPanel panel=new JPanel(new BorderLayout());Device(){panel.add(c,BorderLayout.NORTH);}}
     static final class Fake extends com.kenjoy.kenjoycnc.machine.a.c {
-        int opens,closes,legacyWrites;boolean open,fail,failWrite,reply=true;long delay;String last;final com.kenjoy.kenjoycnc.machine.Re_c firmware;
+        int opens,closes,legacyWrites,lastBaud;boolean open,fail,failWrite,reply=true;long delay;String last;final com.kenjoy.kenjoycnc.machine.Re_c firmware;
         Fake(com.kenjoy.kenjoycnc.machine.Re_c f){super(f);firmware=f;}
-        public boolean a(String port,int baud){opens++;last=port;if(fail)throw new IllegalStateException("Port busy");open=true;return true;}
+        public boolean a(String port,int baud){opens++;last=port;lastBaud=baud;if(fail)throw new IllegalStateException("Port busy");open=true;return true;}
         public void openForProbe(String port,int baud)throws Exception{super.openForProbe(port,baud);}
         public boolean b(){return open;}public void a(){open=false;closes++;}
         protected void a(byte[] b){if(failWrite)super.a(b);else legacyWrites++;}protected void a(byte b){if(failWrite)super.a(b);else legacyWrites++;}
@@ -47,7 +47,8 @@ public final class ConnectionChecks {
         firmwareName.set(null,"EBB");check("EBB version confirms identity",ConnectionService.firmwareLine("EBB Firmware Version 2.6.0")!=null);
         com.kenjoy.kenjoycnc.machine.grbl.b firmware=new com.kenjoy.kenjoycnc.machine.grbl.b();Fake transport=new Fake(firmware);field(g.a(),"c",firmware);field(g.a(),"d",transport);field(g.a(),"e","Grbl");field(g.a(),"g",new com.kenjoy.kenjoycnc.machine.h(true,false));
         java.util.concurrent.atomic.AtomicReference<List<DevicePort>> ports=new java.util.concurrent.atomic.AtomicReference<>(Arrays.asList(ch));
-        App[] app=new App[1];ConnectionService[] service=new ConnectionService[1];SwingUtilities.invokeAndWait(()->{try{app[0]=new App();service[0]=new ConnectionService(app[0],()->ports.get());}catch(Exception e){throw new RuntimeException(e);}});ConnectionService s=service[0];
+        java.util.concurrent.atomic.AtomicInteger discoveries=new java.util.concurrent.atomic.AtomicInteger();
+        App[] app=new App[1];ConnectionService[] service=new ConnectionService[1];SwingUtilities.invokeAndWait(()->{try{app[0]=new App();service[0]=new ConnectionService(app[0],()->{discoveries.incrementAndGet();return ports.get();});}catch(Exception e){throw new RuntimeException(e);}});ConnectionService s=service[0];
         Field singleton=ConnectionService.class.getDeclaredField("instance");singleton.setAccessible(true);singleton.set(null,s);Settings.getInst().autoConnect=true;ConnectionService.startup();idle(s);check("startup verifies already inserted device",transport.opens==1&&field(s,"connected")==ch);
         check("safe open bypasses legacy reset and settings writes",transport.legacyWrites==0);
         call(s,"request",true);idle(s);check("connected port is not reopened",transport.opens==1);
@@ -63,6 +64,15 @@ public final class ConnectionChecks {
         check("serial failure closes the port and clears firmware connection",!transport.open&&!firmware.p()&&field(s,"connected")==null);
         check("serial failure clears the stale sender without device commands",!g.a().i().i()&&transport.legacyWrites==writesBeforeFailure);
         poll.invoke(s);check("failed transport cannot reconnect or resume by itself",(Boolean)field(s,"suppressed")&&!transport.open);
+        transport.failWrite=false;transport.reply=true;ports.set(Arrays.asList(ch,other));int discoveryBefore=discoveries.get();
+        Properties memory=(Properties)field(s,"remembered");memory.setProperty("device","MANUAL\\COM4");memory.setProperty("baud","230400");
+        SwingUtilities.invokeAndWait(()->{app[0].y.j.setSelectedItem("COM4");app[0].y.e.setSelectedItem("9600");app[0].y.c.doClick(0);});idle(s);
+        check("manual connection honors selected port and baud over memory",transport.last.equals("COM4")&&transport.lastBaud==9600&&transport.open);
+        check("manual connection never enumerates or asks to choose another device",discoveries.get()==discoveryBefore);
+        poll.invoke(s);check("manual connection polling preserves selected connection without enumeration",transport.open&&discoveries.get()==discoveryBefore);
+        call(s,"disconnect",true);Thread.sleep(150);int opensBeforeEmpty=transport.opens;
+        SwingUtilities.invokeAndWait(()->{app[0].y.j.setSelectedItem("");app[0].y.c.doClick(0);});idle(s);
+        check("empty manual port opens nothing",transport.opens==opensBeforeEmpty&&discoveries.get()==discoveryBefore);
         field(s,"closed",true);((ScheduledExecutorService)field(s,"worker")).shutdownNow();SwingUtilities.invokeAndWait(()->app[0].frame.dispose());transport.c();
         System.out.println("COMPLETE connectionChecks="+count);System.exit(0);
     }

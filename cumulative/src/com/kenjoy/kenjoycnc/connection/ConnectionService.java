@@ -22,6 +22,7 @@ public final class ConnectionService {
     private final ScheduledExecutorService worker=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"machine-discovery");t.setDaemon(true);return t;});
     private final Callable<List<DevicePort>> discovery;
     private final ComboBoxModel baudModel;
+    private final ComboBoxModel portModel;
     private final JFrame frame;private final JTextArea status=new JTextArea("未连接",2,1);
     private final JCheckBox automatic=new JCheckBox("自动连接");private final JButton search=new JButton("搜索并连接"),cancel=new JButton("取消搜索");
     private final JButton connect;private final Properties remembered=new Properties();
@@ -45,7 +46,7 @@ public final class ConnectionService {
     private ConnectionService(Object app)throws Exception{this(app,null);}
     ConnectionService(Object app,Callable<List<DevicePort>> discovery)throws Exception{
         this.discovery=discovery;
-        frame=(JFrame)app.getClass().getMethod("f").invoke(app);Object device=field(app,"y");connect=(JButton)field(device,"c");baudModel=((JComboBox)field(device,"e")).getModel();
+        frame=(JFrame)app.getClass().getMethod("f").invoke(app);Object device=field(app,"y");connect=(JButton)field(device,"c");baudModel=((JComboBox)field(device,"e")).getModel();portModel=((JComboBox)field(device,"j")).getModel();
         try(InputStream in=Files.newInputStream(memory)){remembered.load(in);}catch(IOException ignored){}
         automatic.setSelected(Settings.getInst().autoConnect);automatic.setName("MachineAutoConnect");search.setName("MachineSearchConnect");cancel.setName("MachineCancelSearch");status.setName("MachineConnectionStatus");
         JPanel row=new JPanel(new BorderLayout(6,4));JPanel actions=new JPanel(new GridLayout(1,3,6,0));actions.add(automatic);actions.add(search);actions.add(cancel);row.add(actions,BorderLayout.NORTH);status.setEditable(false);status.setLineWrap(true);status.setWrapStyleWord(true);status.setOpaque(false);row.add(status,BorderLayout.CENTER);
@@ -53,7 +54,7 @@ public final class ConnectionService {
         Container parent=connect.getParent();while(parent!=null&&!(parent.getLayout() instanceof BorderLayout))parent=parent.getParent();
         if(parent==null)throw new IllegalStateException("无法定位串口控制区域");BorderLayout layout=(BorderLayout)parent.getLayout();Component north=layout.getLayoutComponent(BorderLayout.NORTH);JPanel header=new JPanel(new BorderLayout());if(north!=null){parent.remove(north);header.add(north,BorderLayout.CENTER);}header.add(row,BorderLayout.NORTH);parent.add(header,BorderLayout.NORTH);
         for(ActionListener l:connect.getActionListeners())connect.removeActionListener(l);
-        connect.addActionListener(e->{if(g.a().g().b())disconnect(true);else request(true);});
+        connect.addActionListener(e->{if(g.a().g().b())disconnect(true);else requestSelected();});
         automatic.addActionListener(e->{Settings.getInst().autoConnect=automatic.isSelected();Settings.save();if(automatic.isSelected()){suppressed=false;fingerprint="";request(false);}else{canceled=true;show("自动连接已关闭");}});
         search.addActionListener(e->request(true));cancel.addActionListener(e->{canceled=true;suppressed=true;show("正在取消…");});cancel.setEnabled(false);
         frame.addWindowListener(new WindowAdapter(){public void windowClosed(WindowEvent e){closed=true;canceled=true;worker.shutdownNow();}});
@@ -61,22 +62,36 @@ public final class ConnectionService {
     }
     private void show(String message){SwingUtilities.invokeLater(()->{status.setText(message);status.setToolTipText(message);search.setEnabled(!busy&&!g.a().g().b());cancel.setEnabled(busy);connect.setEnabled(!busy);});}
     private synchronized void request(boolean manual){if(closed||busy)return;if(g.a().g().b()){show("设备已连接");return;}if(!manual&&(!Settings.getInst().autoConnect||suppressed))return;busy=true;canceled=false;deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(20);show("正在搜索 USB 串口…");worker.execute(()->discover(manual));}
+    private synchronized void requestSelected(){
+        if(closed||busy)return;
+        if(discovery==null&&Boolean.getBoolean("kvenjoy.connection.disabled")){show("当前测试环境已禁用设备连接");return;}
+        Object selected=portModel.getSelectedItem();String port=selected==null?"":selected.toString().trim();
+        if(port.isEmpty()){show("请先选择串口；也可使用“搜索并连接”");return;}
+        final int baud;try{baud=Integer.parseInt(String.valueOf(baudModel.getSelectedItem()));if(baud<=0)throw new NumberFormatException();}
+        catch(NumberFormatException error){show("请选择有效波特率");return;}
+        busy=true;canceled=false;deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(20);
+        DevicePort choice=new DevicePort(port,port,"MANUAL\\"+port);show("正在连接所选端口："+port+" · "+baud);
+        worker.execute(()->discover(true,choice,baud));
+    }
     private void poll(){if(closed||busy)return;try{
-        if(connected!=null){List<DevicePort> ports=ports();boolean present=false;for(DevicePort p:ports)if(p.id.equals(connected.id)&&p.port.equals(connected.port))present=true;if(!present||!g.a().g().b()){disconnect(false);}return;}
+        if(connected!=null){if(connected.id.startsWith("MANUAL\\")){if(!g.a().g().b())disconnect(false);return;}List<DevicePort> ports=ports();boolean present=false;for(DevicePort p:ports)if(p.id.equals(connected.id)&&p.port.equals(connected.port))present=true;if(!present||!g.a().g().b()){disconnect(false);}return;}
         if(!Settings.getInst().autoConnect||suppressed)return;
         List<DevicePort> ports=ports();String key=signature(ports);if(!key.equals(fingerprint)){fingerprint=key;request(false);}
     }catch(Exception e){show("搜索失败："+e.getMessage());}}
     private static String signature(List<DevicePort> ports){List<String> names=new ArrayList<>();for(DevicePort p:ports)names.add(p.id+"@"+p.port);Collections.sort(names);return names.toString();}
     private void check()throws Exception{if(closed||canceled||Thread.currentThread().isInterrupted())throw new CancellationException();if(System.nanoTime()>deadline)throw new TimeoutException("搜索连接超时");}
-    private void discover(boolean manual){boolean opened=false;try{
+    private void discover(boolean manual){discover(manual,null,0);}
+    private void discover(boolean manual,DevicePort selected,int selectedBaud){boolean opened=false;try{
+        DevicePort choice=selected;int baud=selectedBaud;
+        if(choice==null){
         check();List<DevicePort> all=ports();check();fingerprint=signature(all);List<DevicePort> candidates=DevicePort.candidates(all);
         if(candidates.isEmpty())throw new IOException("未发现可用 USB 串口（已排除蓝牙与蜂窝模块）");
-        candidates.sort(Comparator.comparing((DevicePort p)->!p.identity().equals(remembered.getProperty("device",""))).thenComparing(p->p.port));
-        DevicePort choice;
+        candidates.sort(Comparator.comparing((DevicePort p)->!p.identity().equals(remembered.getProperty("device",""))).thenComparing(DevicePort.PORT_ORDER));
         if(candidates.size()==1&&(manual||DevicePort.automatic(candidates,remembered.getProperty("device",""))!=null))choice=candidates.get(0);
         else choice=choose(candidates);
+        baud=choice.identity().equals(remembered.getProperty("device"))?Integer.parseInt(remembered.getProperty("baud","115200")):Integer.parseInt(String.valueOf(baudModel.getSelectedItem()));
+        }
         check();probeFirmware=g.a().f();if(!Arrays.asList("Grbl","EBB","Marlin","K_AT").contains(probeFirmware))throw new IOException("当前固件不支持安全识别："+probeFirmware);
-        int baud=choice.identity().equals(remembered.getProperty("device"))?Integer.parseInt(remembered.getProperty("baud","115200")):Integer.parseInt(String.valueOf(baudModel.getSelectedItem()));
         probeMode=true;probeError=null;show("正在验证固件："+choice.port);
         try{if(g.a().g().b())throw new IOException("设备已经打开，请先断开");opened=true;com.kenjoy.kenjoycnc.machine.a.c transport=(com.kenjoy.kenjoycnc.machine.a.c)g.a().g();transport.openForProbe(choice.port,baud);check();transport.probe(probeFirmware);
             long until=Math.min(deadline,System.nanoTime()+TimeUnit.SECONDS.toNanos(7));

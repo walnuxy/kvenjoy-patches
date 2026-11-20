@@ -40,6 +40,7 @@ public final class InlineCanvasChecks {
         public NoteEditSession session(){return fixture.session;}public NoteEditGeometry geometry(){return fixture.geometry;}public float scale(){return canvas.displayScale();}
         public void changed(){fixture.changed();}public void selectionChanged(){}public void history(boolean forward){}public void failure(Throwable e){throw new AssertionError(e);}
         public int getCurrentPageIndex(){return active;}public void activatePreviewPage(int page){active=page;}
+        public NoteDocument document(){return fixture.session.snapshot();}
     }
     public static void main(String[] args)throws Exception{run();}
     public static void run()throws Exception{
@@ -177,6 +178,14 @@ public final class InlineCanvasChecks {
         canvas.setEditing(false);BufferedImage preview=raster(canvas);
         check("non editing preview paper and surrounding canvas are black",dark(preview.getRGB(42,32))&&dark(preview.getRGB(5,5)));
         check("resolved handwriting is light on the black preview",ink(preview,cell,true));
+        NoteDocument zoneDocument=host.session().mutableDocument();
+        zoneDocument.forbiddenZones.rules.add(new NoteForbiddenZones.Rule("画笔隔离",70,35,10,10,.5f));
+        try{
+            BufferedImage withZone=raster(canvas);Rectangle compare=cell.intersection(new Rectangle(0,0,preview.getWidth(),preview.getHeight()));
+            check("forbidden-zone clearance dashes never change handwriting strokes",java.util.Arrays.equals(
+                preview.getRGB(compare.x,compare.y,compare.width,compare.height,null,0,compare.width),
+                withZone.getRGB(compare.x,compare.y,compare.width,compare.height,null,0,compare.width)));
+        }finally{zoneDocument.forbiddenZones.rules.clear();}
         canvas.setEditing(true);BufferedImage editing=raster(canvas);
         check("editing preview retains black paper and light handwriting",dark(editing.getRGB(42,32))&&ink(editing,cell,true));
         BufferedImage exported=NoteTab.image(host.geometry().layout,host.session().mutableDocument(),0,25.4f);

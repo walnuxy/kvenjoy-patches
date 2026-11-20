@@ -61,13 +61,13 @@ public final class NoteStateChecks {
         if(!Boolean.getBoolean("note.state.isolated"))throw new IllegalStateException("requires isolated test JVM");
         java.security.Provider windows=java.security.Security.getProvider("SunMSCAPI");if(windows!=null){java.security.Security.removeProvider("SunMSCAPI");java.security.Security.insertProviderAt(windows,1);}
         MachineData machine=new MachineData();machine.name="NoteStateChecks";machine.type=com.kenjoy.kenjoycnc.machine.MachineType.Grbl;com.kenjoy.kenjoycnc.o.c.e=machine;com.kenjoy.kenjoycnc.o.c.c="kvenjoy";
-        String scenario=System.getProperty("note.state.scenario","view");if("view".equals(scenario))view();else if("close".equals(scenario))closeRace();else if("legacy".equals(scenario))legacy();else throw new IllegalArgumentException(scenario);
+        String scenario=System.getProperty("note.state.scenario","view");if("view".equals(scenario))view();else if("close".equals(scenario))closeRace();else if("legacy".equals(scenario))legacy();else if("zones".equals(scenario))ForbiddenZoneDialogChecks.run();else throw new IllegalArgumentException(scenario);
         System.out.println("NOTE_STATE_CHECKS "+scenario+" checks="+checks+" failures="+failures);if(failures!=0)throw new AssertionError("state regressions="+failures);
     }
     /** Called by the real application's inline suite; child homes keep restore fixtures away from its active draft. */
     public static void runForked()throws Exception{
         Path evidence=Paths.get(System.getProperty("note.evidence"));Files.createDirectories(evidence);
-        for(String scenario:new String[]{"view","close","legacy"}){
+        for(String scenario:new String[]{"view","close","legacy","zones"}){
             Path work=Files.createTempDirectory(evidence,"note-state-"+scenario+"-");Path log=work.resolve("result.log"),temporary=Files.createDirectory(work.resolve("tmp"));
             String executable=Paths.get(System.getProperty("java.home"),"bin","java.exe").toString();
             ProcessBuilder builder=new ProcessBuilder(executable,"-Xverify:all","-Dfile.encoding=UTF-8","-Dkvenjoy.processingDpi=96","-Dkvenjoy.connection.disabled=true","-Dnote.state.isolated=true","-Dnote.state.scenario="+scenario,"-Duser.home="+work.resolve("home"),"-Djava.io.tmpdir="+temporary,"-Djava.library.path="+System.getProperty("java.library.path"),"-Djna.library.path="+System.getProperty("jna.library.path",""),"-Dnote.fonts="+System.getProperty("note.fonts"),"-cp",System.getProperty("java.class.path"),"NoteStateChecks").directory(work.toFile()).redirectErrorStream(true).redirectOutput(log.toFile());
@@ -76,7 +76,7 @@ public final class NoteStateChecks {
             if(process.exitValue()!=0)throw new AssertionError("state check failed: "+scenario+"; "+log);
             System.out.print(new String(Files.readAllBytes(log),java.nio.charset.StandardCharsets.UTF_8));
         }
-        Files.write(evidence.resolve("NOTE-STATE-COMPLETE.txt"),"view, close and legacy state checks passed".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Files.write(evidence.resolve("NOTE-STATE-COMPLETE.txt"),"view, close, legacy and forbidden-zone dialog state checks passed".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
     public static void main(String[] args){try{run();System.exit(0);}catch(Throwable e){e.printStackTrace();System.exit(1);}}
 }

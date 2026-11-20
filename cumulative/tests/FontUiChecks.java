@@ -36,14 +36,20 @@ public final class FontUiChecks {
     private static Path evidencePath;
 
     public static void main(String[] args) throws Exception {
-
-
+        // Match the integration harness: Java 8's default seeder may wait on
+        // Windows network adapters when favorites create a temporary file.
+        java.security.Provider windows = java.security.Security.getProvider("SunMSCAPI");
+        if (windows != null) {
+            java.security.Security.removeProvider("SunMSCAPI");
+            java.security.Security.insertProviderAt(windows, 1);
+        }
         Path evidence = Paths.get(args.length > 0 ? args[0] : "font-ui/evidence/font-ui-checks.txt");
         evidencePath = evidence;
         System.setProperty("java.awt.headless", "false");
         Files.createDirectories(evidence.getParent());
         try {
-            run();
+            if (args.length < 2 || !"--tab-state-only".equals(args[1])) run();
+            runTabStateChecks();
         } catch (Throwable error) {
             failures++;
             results.add("FAIL 未捕获异常: " + error);
@@ -432,9 +438,110 @@ public final class FontUiChecks {
                 confirm.doClick();
                 check("四十字体仍可确定并回调保存", callbackCount[0] == 40 && many.fontsName.length == 40);
                 check("四十字体保存最后一项优先级", many.chance.length == 40 && many.chance[39] == 9);
+                dialog.a(many);
+                javax.swing.JTabbedPane tabs = (javax.swing.JTabbedPane)get(dialog, "a");
+                set(get(dialog, "m"), "loading", Boolean.TRUE);
+                set(get(dialog, "n"), "loading", Boolean.TRUE);
+                tabs.setSelectedIndex(1);
+                check("切换下载字体标签页后加入移除确认与权重框均禁用",
+                        !add.isEnabled() && !remove.isEnabled() && !confirm.isEnabled()
+                        && !((Component)priorityFields.get(0)).isEnabled());
+                tabs.setSelectedIndex(0);
+                check("切回本地字体标签页后加入移除权重与确定按钮恢复可用",
+                        add.isEnabled() && remove.isEnabled() && confirm.isEnabled()
+                        && ((Component)priorityFields.get(0)).isEnabled());
+                dialog.a((FontsDialogData)null);
+                check("空配置重载时同步清空优先级输入框与已选列表",
+                        right.isEmpty() && priorityFields.isEmpty() && priorityPanel.getComponentCount() == 0 && !confirm.isEnabled());
                 dialog.dispose();
             }
         });
+    }
+
+    /** Focused regression: never shows a window or sends operating-system input. */
+    private static void runTabStateChecks() throws Exception {
+        results.add("FONT_TAB_STATE r=" + r.class.getProtectionDomain().getCodeSource().getLocation());
+        final r[] holder = new r[1];
+        SwingUtilities.invokeAndWait(() -> holder[0] = new r());
+        final r dialog = holder[0];
+        try {
+            final z local = (z)get(dialog, "l");
+            final FontCatalogue catalogue = (FontCatalogue)get(local, "cache");
+            catalogue.refresh().get(30, java.util.concurrent.TimeUnit.SECONDS);
+            final DefaultListModel model = new DefaultListModel();
+            for (int index = 0; index < 3; index++) model.addElement(mock(index));
+            final javax.swing.JTabbedPane tabs = (javax.swing.JTabbedPane)get(dialog, "a");
+            final DefaultListModel selected = (DefaultListModel)get(dialog, "j");
+            final JList right = (JList)get(dialog, "g");
+            final List fields = (List)get(dialog, "r");
+            final JButton add = (JButton)get(dialog, "d"), remove = (JButton)get(dialog, "e");
+            final JButton confirm = (JButton)get(dialog, "f");
+            final int[] callbacks = new int[1];
+            SwingUtilities.invokeAndWait(() -> {
+                local.cancel();
+                set(local, "initialized", Boolean.TRUE);
+                set(local, "applied", catalogue.current());
+                set(get(dialog, "m"), "loading", Boolean.TRUE);
+                set(get(dialog, "n"), "loading", Boolean.TRUE);
+                set(dialog, "p", new FontsDialogData(new String[]{mock(0).f, mock(1).f}, new int[]{7, 9}));
+                set(dialog, "o", new t() {
+                    public void onFontSelected(v[] fonts, int[] chances) { callbacks[0]++; }
+                });
+                dialog.a(model);
+                right.setSize(240, 300);
+                tabs.setSelectedIndex(1);
+                check("下载页禁用右侧列表、箭头、确认与权重", !right.isEnabled()
+                        && !add.isEnabled() && !remove.isEnabled() && !confirm.isEnabled()
+                        && !((Component)fields.get(0)).isEnabled());
+                Rectangle cell = right.getCellBounds(0, 0);
+                dispatch(right, java.awt.event.MouseEvent.MOUSE_CLICKED, new Point(cell.x + 10, cell.y + 10), 2);
+                check("下载页双击不移除字体、不更改权重或重新启用确认", selected.size() == 2
+                        && fields.size() == 2 && !confirm.isEnabled()
+                        && ((Number)((JFormattedTextField)fields.get(0)).getValue()).intValue() == 7);
+                // Restore the fixture so the old candidate can report both independent failures.
+                dialog.a(model);
+                check("下载页EDT模型刷新后确认仍禁用", selected.size() == 2 && !confirm.isEnabled());
+            });
+            final DefaultListModel refreshed = new DefaultListModel();
+            for (int index = 0; index < model.size(); index++) refreshed.addElement(model.get(index));
+            Thread loader = new Thread(() -> dialog.a(refreshed), "font-tab-state-loader");
+            loader.start();
+            loader.join();
+            SwingUtilities.invokeAndWait(() -> {
+                check("下载页后台模型回调后确认与权重仍禁用", selected.size() == 2 && fields.size() == 2
+                        && !confirm.isEnabled() && !((Component)fields.get(0)).isEnabled());
+                dialog.catalogueChanged(model);
+                check("下载页目录刷新后保留选择和权重并维持禁用", selected.size() == 2
+                        && !confirm.isEnabled() && !right.isEnabled()
+                        && ((Number)((JFormattedTextField)fields.get(1)).getValue()).intValue() == 9);
+                dialog.actionPerformed(new java.awt.event.ActionEvent(confirm, 0, "confirm"));
+                check("下载页直接确认事件也不能提交", callbacks[0] == 0 && selected.size() == 2);
+                // The old candidate may have committed; restore before checking local recovery.
+                set(dialog, "p", new FontsDialogData(new String[]{mock(0).f, mock(1).f}, new int[]{7, 9}));
+                dialog.a(model);
+                tabs.setSelectedIndex(0);
+                check("切回本地页后列表、箭头、确认与权重恢复", right.isEnabled()
+                        && add.isEnabled() && remove.isEnabled() && confirm.isEnabled()
+                        && ((Component)fields.get(0)).isEnabled() && selected.size() == 2);
+                Rectangle cell = right.getCellBounds(0, 0);
+                dispatch(right, java.awt.event.MouseEvent.MOUSE_CLICKED, new Point(cell.x + 10, cell.y + 10), 2);
+                check("本地页双击仍可移除且保持权重对应", selected.size() == 1 && fields.size() == 1
+                        && ((v)selected.get(0)).f.equals(mock(1).f) && confirm.isEnabled()
+                        && ((Number)((JFormattedTextField)fields.get(0)).getValue()).intValue() == 9);
+                final int before = callbacks[0];
+                confirm.doClick();
+                FontsDialogData saved = (FontsDialogData)get(dialog, "p");
+                check("本地页确认仍提交剩余字体及原权重", callbacks[0] == before + 1
+                        && saved.fontsName.length == 1 && saved.fontsName[0].equals(mock(1).f)
+                        && saved.chance.length == 1 && saved.chance[0] == 9);
+                set(dialog, "p", null);
+                dialog.a(model);
+                check("本地页空选择仍禁用确认", selected.isEmpty() && fields.isEmpty() && !confirm.isEnabled());
+                check("字体状态专项全程隐藏窗口", !dialog.isShowing());
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(dialog::dispose);
+        }
     }
 
     private static v mock(int index) {

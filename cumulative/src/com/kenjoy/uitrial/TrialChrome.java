@@ -25,6 +25,15 @@ public final class TrialChrome {
         Toolkit.getDefaultToolkit().addAWTEventListener(pending,AWTEvent.CONTAINER_EVENT_MASK);
     }
     public static void disarm(){if(pending!=null){Toolkit.getDefaultToolkit().removeAWTEventListener(pending);pending=null;}}
+    public static void refreshTitle(Object app)throws Exception{
+        JFrame frame=(JFrame)app.getClass().getMethod("f").invoke(app);Object mode=UiStyle.field(app,"g");
+        String article=mode!=null&&mode.getClass().getName().endsWith(".NoteTab")?(String)mode.getClass().getMethod("articleTitle").invoke(mode):"";
+        String full="奎享雕刻"+(article.isEmpty()?"":" — "+article);
+        frame.setTitle(full);
+        for(Component component:frame.getJMenuBar().getComponents())if(component instanceof JLabel&&"ApplicationTitle".equals(component.getName())){
+            ((JLabel)component).setText("奎享雕刻"+(article.isEmpty()?"":" — "+(article.length()>22?article.substring(0,19)+"…"+(article.endsWith(" *")?" *":""):article)));((JLabel)component).setToolTipText(full);
+        }
+    }
     public static void install(final JFrame frame){
         if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("EDT required");
         if(!frame.isUndecorated())throw new IllegalStateException("Main window was not captured before peer creation");
@@ -37,7 +46,7 @@ public final class TrialChrome {
         final JMenuBar bar=frame.getJMenuBar();
         int height=bar.getPreferredSize().height;
         JComponent drag=(JComponent)Box.createHorizontalGlue();bar.add(drag);
-        JLabel title=new JLabel(Boolean.TRUE.equals(frame.getRootPane().getClientProperty("modernization.production"))?"奎享雕刻 · 界面预装":"奎享雕刻 · 外观试验");title.setFont(new Font("Microsoft YaHei UI",Font.PLAIN,12));title.setForeground(UiPalette.MUTED);title.setBorder(BorderFactory.createEmptyBorder(0,10,0,18));bar.add(title);
+        JLabel title=new JLabel(Boolean.TRUE.equals(frame.getRootPane().getClientProperty("modernization.production"))?"奎享雕刻":"奎享雕刻 · 外观试验");title.setName("ApplicationTitle");title.setFont(new Font("Microsoft YaHei UI",Font.PLAIN,12));title.setForeground(UiPalette.MUTED);title.setBorder(BorderFactory.createEmptyBorder(0,10,0,18));bar.add(title);
         bar.add(new CaptionButton(frame,0,height));bar.add(new CaptionButton(frame,1,height));bar.add(new CaptionButton(frame,2,height));
         MouseInputAdapter move=new MouseInputAdapter(){Point anchor;
             public void mousePressed(MouseEvent e){if(SwingUtilities.isLeftMouseButton(e))anchor=SwingUtilities.convertPoint(e.getComponent(),e.getPoint(),frame);}

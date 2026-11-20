@@ -208,7 +208,7 @@ ChangeListener {
         this.g.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
-                if (!SwingUtilities.isLeftMouseButton(event) || event.getClickCount() != 2) {
+                if (!r.this.isLocalFonts() || !SwingUtilities.isLeftMouseButton(event) || event.getClickCount() != 2) {
                     return;
                 }
                 int index = r.this.g.locationToIndex(event.getPoint());
@@ -226,7 +226,7 @@ ChangeListener {
     }
 
     private void addSelected(v candidate) {
-        if (candidate == null) {
+        if (!this.isLocalFonts() || candidate == null) {
             return;
         }
         if (!this.contains(candidate)) {
@@ -253,7 +253,7 @@ ChangeListener {
     }
 
     private void removeAt(int index) {
-        if (index < 0 || index >= this.j.size()) {
+        if (!this.isLocalFonts() || index < 0 || index >= this.j.size()) {
             return;
         }
         this.j.remove(index);
@@ -278,6 +278,7 @@ ChangeListener {
     public void setVisible(boolean bl) {
         if (bl) {
             this.c();
+            if (this.folderFilter != null) this.folderFilter.refresh();
         }
         super.setVisible(bl);
     }
@@ -307,11 +308,11 @@ ChangeListener {
         this.k = defaultListModel;
         if (this.folderFilter != null) this.folderFilter.setSource(defaultListModel);
         this.j.clear();
+        this.clearPriorityFields();
         if (this.p == null || this.p.fontsName == null) {
+            this.d();
             return;
         }
-        for (Object field : this.r) this.q.remove((Component)field);
-        this.r.clear();
         for (int selectedIndex=0;selectedIndex<this.p.fontsName.length;selectedIndex++) {
             String name=this.p.fontsName[selectedIndex];
             for(int n=0;n<defaultListModel.size();n++) {
@@ -338,9 +339,17 @@ ChangeListener {
         this.a(model);this.p=saved;
     }
 
+    private void clearPriorityFields() {
+        for (Object field : this.r) {
+            this.q.remove((Component)field);
+        }
+        this.r.clear();
+    }
+
     private void a(int n2) {
         JFormattedTextField jFormattedTextField = new JFormattedTextField(NumberFormat.getIntegerInstance());
         jFormattedTextField.setValue(n2);
+        jFormattedTextField.setEnabled(this.a == null || this.a.getSelectedComponent() instanceof z);
         this.q.add(jFormattedTextField);
         this.r.add(jFormattedTextField);
         this.q.revalidate();
@@ -374,16 +383,26 @@ ChangeListener {
                 ++n2;
             }
         }
-        /* 切回“本地字体”时，确定按钮仍应按已选数量决定是否可用。 */
-        if (localFonts) {
-            this.d();
-        } else {
-            this.f.setEnabled(false);
+        if (this.d != null) {
+            this.d.setEnabled(localFonts);
         }
+        if (this.e != null) {
+            this.e.setEnabled(localFonts);
+        }
+        this.g.setEnabled(localFonts);
+        for (Object field : this.r) {
+            ((Component)field).setEnabled(localFonts);
+        }
+        this.d();
+    }
+
+    private boolean isLocalFonts() {
+        return this.a.getSelectedComponent() instanceof z;
     }
 
     private void d() {
-        this.f.setEnabled(!this.j.isEmpty());
+        // Model callbacks must preserve the selected tab's editing state.
+        this.f.setEnabled(this.isLocalFonts() && !this.j.isEmpty());
         this.g.revalidate();
         this.g.repaint();
         this.q.revalidate();
@@ -392,6 +411,9 @@ ChangeListener {
 
     @Override
     public void actionPerformed(ActionEvent actionEvent) {
+        if (!this.isLocalFonts()) {
+            return;
+        }
         Object source = actionEvent.getSource();
         if (source == this.d) {
             this.addSelected(this.l.getSelected());

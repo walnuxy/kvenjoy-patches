@@ -28,8 +28,9 @@ public final class FontFolderFilter implements ListDataListener {
     private final JComboBox<String> category = new JComboBox<String>();
     private final JComboBox<String> kind = new JComboBox<String>(new String[]{ALL, "喜好字体", "中文", "英文", "符号", "其他语言"});
     private final JButton favorite = new JButton("加入喜好");
-    private final Properties favorites = new Properties();
     private final File favoritesFile = new File(System.getProperty("user.home"), ".KenjoyDraw/font-favorites.properties");
+    private final FontFavorites favorites = new FontFavorites(favoritesFile.toPath());
+    private boolean favoritesReadable = true;
     private final Map<String, String> kinds = new java.util.concurrent.ConcurrentHashMap<String, String>();
     private final JLabel count = new JLabel();
     private volatile java.util.List<String> directoryNames=java.util.Collections.emptyList();
@@ -81,10 +82,6 @@ public final class FontFolderFilter implements ListDataListener {
         kind.addActionListener(e -> refresh());
         local.listFonts.addListSelectionListener(e -> updateFavorite());
         favorite.addActionListener(e -> toggleFavorite());
-        if (favoritesFile.isFile()) {
-            try (InputStream in = new FileInputStream(favoritesFile)) { favorites.load(in); }
-            catch (IOException ex) { JOptionPane.showMessageDialog(local, "读取喜好字体失败：" + ex.getMessage()); }
-        }
         refresh.addActionListener(e -> local.refresh());
         open.addActionListener(e -> {
             try { Desktop.getDesktop().open(directory); }
@@ -134,37 +131,24 @@ public final class FontFolderFilter implements ListDataListener {
         return relative.getNameCount() > 1 ? relative.getName(0).toString() : ROOT;
     }
 
-    private String favoriteKey(v font) {
-        // Saved selections also use the filename; keep favorites when folders move.
+    private File favoriteFile(v font) {
         File file = (File)files.get(font);
-        return file != null ? file.getName() : font.f != null ? font.f : font.b;
+        return file != null ? file : new File(directory, font.f != null ? font.f : font.b);
     }
 
     private void updateFavorite() {
         v font = (v)local.listFonts.getSelectedValue();
-        favorite.setEnabled(font != null);
-        favorite.setText(font != null && favorites.containsKey(favoriteKey(font)) ? "取消喜好" : "加入喜好");
+        favorite.setEnabled(font != null && favoritesReadable);
+        favorite.setText(font != null && favorites.isFavorite(favoriteFile(font)) ? "取消喜好" : "加入喜好");
     }
 
     private void toggleFavorite() {
         v font = (v)local.listFonts.getSelectedValue();
         if (font == null) return;
-        String key = favoriteKey(font);
-        Object previous = favorites.remove(key);
-        if (previous == null) favorites.setProperty(key, font.b);
-        Path temporary = null;
         try {
-            Files.createDirectories(favoritesFile.toPath().getParent());
-            temporary = favoritesFile.toPath().resolveSibling("font-favorites-" + Long.toHexString(System.nanoTime()) + ".tmp");
-            try (OutputStream out = Files.newOutputStream(temporary, java.nio.file.StandardOpenOption.CREATE_NEW)) {
-                favorites.store(out, "Kvenjoy favorite fonts");
-            }
-            Files.move(temporary, favoritesFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            favorites.toggle(favoriteFile(font), font.b);
         } catch (IOException ex) {
-            if (previous == null) favorites.remove(key); else favorites.put(key, previous);
             JOptionPane.showMessageDialog(local, "保存喜好字体失败：" + ex.getMessage());
-        } finally {
-            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
         }
         refresh();
     }
@@ -203,6 +187,16 @@ public final class FontFolderFilter implements ListDataListener {
 
     void refresh() {
         if (!SwingUtilities.isEventDispatchThread()) { scheduleRefresh(); return; }
+        java.util.List<File> fontFiles = new ArrayList<File>(files.values());
+        favorites.setFonts(fontFiles);
+        try {
+            favorites.reload();
+            favoritesReadable = true;
+            favorite.setToolTipText(null);
+        } catch (IOException ex) {
+            favoritesReadable = false;
+            favorite.setToolTipText("读取喜好字体失败：" + ex.getMessage());
+        }
         String selected = (String)category.getSelectedItem();
         Set<String> folders = new TreeSet<String>(directoryNames);
         for (int i=0;i<source.size();i++) folders.add(folderOf((v)source.get(i)));
@@ -220,7 +214,7 @@ public final class FontFolderFilter implements ListDataListener {
         for (int i=0;i<source.size();i++) {
             v font = (v)source.get(i);
             boolean matchesKind = ALL.equals(selectedKind) || ("喜好字体".equals(selectedKind)
-                ? favorites.containsKey(favoriteKey(font)) : selectedKind.equals(kindOf(font)));
+                ? favorites.isFavorite(favoriteFile(font)) : selectedKind.equals(kindOf(font)));
             if (matchesKind && (ALL.equals(selected) || selected.equals(folderOf(font)))) visible.addElement(font);
         }
         if (previous != null && visible.contains(previous)) local.listFonts.setSelectedValue(previous, true);

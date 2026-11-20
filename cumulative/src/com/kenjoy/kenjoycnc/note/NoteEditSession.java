@@ -136,7 +136,7 @@ public final class NoteEditSession {
         if(kind==Kind.DELETE)return text.isEmpty()&&length>0&&offset==caret;
         return false;
     }
-    private static long estimate(NoteDocument d){long bytes=4096L+d.text.length()*2L;for(NoteDocument.Atom a:d.atoms){bytes+=192;if(a.inputFonts!=null)bytes+=24L+8L*a.inputFonts.length;if(a.inputChances!=null)bytes+=24L+4L*a.inputChances.length;}return bytes;}
+    private static long estimate(NoteDocument d){long bytes=4096L+d.text.length()*2L;for(NoteDocument.Atom a:d.atoms){bytes+=192;if(a.effect!=null)bytes+=160;if(a.appearanceOverride!=null)bytes+=80;if(a.inputFonts!=null)bytes+=24L+8L*a.inputFonts.length;if(a.inputChances!=null)bytes+=24L+4L*a.inputChances.length;}return bytes;}
     private State state(){return new State(document,anchor,caret,availableCuts,stateIdentity);}
     private void reserveHistory(long incoming){
         // Release old snapshots before allocating the next copy, including at the 30-entry limit.
@@ -173,10 +173,10 @@ public final class NoteEditSession {
 
     /** Accept only derived font/sample data; a layout cannot rewrite text, selection or settings. */
     public boolean adoptLayout(NoteDocument candidate,long sourceRevision){
-        if(sourceRevision!=revision||candidate==null||document.generation!=candidate.generation||!document.text.equals(candidate.text)||document.atoms.size()!=candidate.atoms.size())return false;
+        if(sourceRevision!=revision||candidate==null||document.generation!=candidate.generation||document.appearanceSeed!=candidate.appearanceSeed||!sameConfig(document.appearance,candidate.appearance)||!document.text.equals(candidate.text)||document.atoms.size()!=candidate.atoms.size())return false;
         for(int i=0;i<document.atoms.size();i++){
             NoteDocument.Atom a=document.atoms.get(i),b=candidate.atoms.get(i);
-            if(a.id!=b.id||!a.text.equals(b.text)||!samePolicy(a,b)||!sameFont(a.override,b.override))return false;
+            if(a.id!=b.id||!a.text.equals(b.text)||!samePolicy(a,b)||!sameFont(a.override,b.override)||!sameConfigNullable(a.appearanceOverride,b.appearanceOverride)||!sameEffect(a.effect,b.effect))return false;
         }
         mergeMetadata(document,candidate);
         // Samples discovered after a rapid burst also belong to unresolved snapshots of those same atoms.
@@ -185,16 +185,51 @@ public final class NoteEditSession {
         return true;
     }
     private static boolean samePolicy(NoteDocument.Atom a,NoteDocument.Atom b){return Arrays.equals(a.inputFonts,b.inputFonts)&&Arrays.equals(a.inputChances,b.inputChances)&&Objects.equals(a.inputGeneration,b.inputGeneration);}
+    private static boolean sameConfig(NoteAppearance.Config a,NoteAppearance.Config b){return a==b||(a!=null&&b!=null&&NoteAppearance.key(a).equals(NoteAppearance.key(b)));}
+    private static boolean sameConfigNullable(NoteAppearance.Config a,NoteAppearance.Config b){return a==b||(a!=null&&b!=null&&sameConfig(a,b));}
+    private static boolean sameEffect(NoteAppearance.State a,NoteAppearance.State b){return a==b||(a!=null&&b!=null&&a.epoch==b.epoch&&Arrays.equals(a.noise,b.noise)&&Arrays.equals(a.continuity,b.continuity));}
     private static boolean sameFont(NoteDocument.FontRef a,NoteDocument.FontRef b){return a==b||(a!=null&&b!=null&&Objects.equals(a.hash,b.hash)&&Objects.equals(a.relativePath,b.relativePath));}
     private static void mergeMetadata(NoteDocument target,NoteDocument prepared){
-        if(target.generation!=prepared.generation)return;
+        if(target.generation!=prepared.generation||!sameSamplingContext(target,prepared))return;
         Map<Long,NoteDocument.Atom> source=new HashMap<Long,NoteDocument.Atom>();for(NoteDocument.Atom a:prepared.atoms)source.put(a.id,a);
         for(NoteDocument.Atom a:target.atoms){
-            NoteDocument.Atom b=source.get(a.id);if(b==null||!a.text.equals(b.text)||!samePolicy(a,b)||!sameFont(a.override,b.override))continue;
+            NoteDocument.Atom b=source.get(a.id);if(b==null||!a.text.equals(b.text)||!samePolicy(a,b)||!sameFont(a.override,b.override)||!sameConfigNullable(a.appearanceOverride,b.appearanceOverride)||!sameEffect(a.effect,b.effect))continue;
             if(a.automatic==null&&b.automatic!=null)a.automatic=NoteDocument.copyFont(b.automatic);
             if(!a.sampled&&b.sampled){a.size=b.size;a.scaleX=b.scaleX;a.scaleY=b.scaleY;a.rotate=b.rotate;a.y=b.y;a.space=b.space;a.sampled=true;}
         }
         if(target.pool.isEmpty()&&!prepared.pool.isEmpty()){for(NoteDocument.FontRef f:prepared.pool)target.pool.add(NoteDocument.copyFont(f));target.chances=prepared.chances==null?null:prepared.chances.clone();}
+    }
+
+    private static boolean sameSamplingContext(NoteDocument a,NoteDocument b){
+        if(!Arrays.equals(a.page.fontPath,b.page.fontPath)||!Arrays.equals(a.page.fontChance,b.page.fontChance))return false;
+        boolean sameStoredPool=sameFontList(a.pool,b.pool)&&Arrays.equals(a.chances,b.chances);
+        boolean derivedPool=(a.pool.isEmpty()&&poolDerivedFromPage(a.page,b.pool,b.chances))
+            ||(b.pool.isEmpty()&&poolDerivedFromPage(b.page,a.pool,a.chances));
+        if(!sameStoredPool&&!derivedPool)return false;
+        NoteDocument.ShapeSettings x=a.shapes,y=b.shapes;
+        return Float.compare(x.randomY,y.randomY)==0&&Arrays.equals(x.randomFontSize,y.randomFontSize)
+            &&Arrays.equals(x.randomXScale,y.randomXScale)&&Arrays.equals(x.randomYScale,y.randomYScale)
+            &&Arrays.equals(x.randomRotate,y.randomRotate)&&Arrays.equals(x.randomSpace,y.randomSpace);
+    }
+    private static boolean poolDerivedFromPage(com.kenjoy.kenjoycnc.data.PageInfo page,List<NoteDocument.FontRef> refs,int[] chances){
+        List<String> names=new ArrayList<String>();List<Integer> weights=new ArrayList<Integer>();
+        if(page.fontPath!=null)for(int i=0;i<page.fontPath.length;i++){
+            int weight=page.fontChance==null?1:i<page.fontChance.length?Math.max(0,page.fontChance[i]):0;
+            if(weight>0){names.add(page.fontPath[i]);weights.add(weight);}
+        }
+        if(refs.isEmpty()&&names.isEmpty())return chances==null||chances.length==0;
+        if(refs.size()!=names.size()||chances==null||chances.length!=weights.size())return false;
+        for(int i=0;i<refs.size();i++){
+            String path=refs.get(i).relativePath==null?"":refs.get(i).relativePath;
+            int slash=Math.max(path.lastIndexOf('/'),path.lastIndexOf('\\'));
+            if(!names.get(i).equals(path.substring(slash+1))||chances[i]!=weights.get(i))return false;
+        }
+        return true;
+    }
+    private static boolean sameFontList(List<NoteDocument.FontRef> a,List<NoteDocument.FontRef> b){
+        if(a.size()!=b.size())return false;
+        for(int i=0;i<a.size();i++)if(!sameFont(a.get(i),b.get(i)))return false;
+        return true;
     }
 
     public ClipboardContent copySelection(){return new ClipboardContent(document.text.substring(selectionStart(),selectionEnd()));}

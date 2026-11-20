@@ -104,6 +104,23 @@ public final class UiStyle {
         JComponent c=(JComponent)component;
         boolean noteSection=c instanceof JPanel && c.getBorder() instanceof TitledBorder
             && c.getClass().getName().startsWith("com.kenjoy.kenjoycnc.processTabs.NoteTab$");
+        boolean collapsibleSection=c.getClass().getName().equals("com.kenjoy.kenjoycnc.note.NoteCollapsibleSection");
+        if(collapsibleSection){
+            if(remember(c)){Saved old=saved.get(c);c.setBackground(SURFACE);((JPanel)c).setUI(new RoundedPanelUI((PanelUI)old.ui));c.setLayout(old.layout);c.setBorder(new EmptyBorder(NativeDpi.px(4),0,0,0));}
+            for(Component child:((Container)c).getComponents())plain(child);
+            return;
+        }
+        if(c instanceof JToggleButton && c.getParent()!=null && c.getParent().getClass().getName().equals("com.kenjoy.kenjoycnc.note.NoteCollapsibleSection")){
+            if(remember(c)){Saved old=saved.get(c);AbstractButton b=(AbstractButton)c;b.setContentAreaFilled(false);b.setFocusPainted(false);b.setUI(new SectionToggleUI((ButtonUI)old.ui));b.setFont(SECTION_FONT);b.setForeground(MUTED);b.setBackground(SURFACE);b.setBorder(new EmptyBorder(NativeDpi.px(4),NativeDpi.px(4),NativeDpi.px(3),NativeDpi.px(4)));}
+            return;
+        }
+        if(c instanceof JScrollPane && "NoteForbiddenZoneScroll".equals(c.getName())){
+            if(remember(c)){Saved old=saved.get(c);c.setBackground(SURFACE);c.setBorder(new FixedInsetsBorder(new LineBorder(UiPalette.HAIRLINE),old.insets));shell(((JScrollPane)c).getViewport());scroll(((JScrollPane)c).getVerticalScrollBar());scroll(((JScrollPane)c).getHorizontalScrollBar());}
+            return;
+        }
+        if(c instanceof javax.swing.JTextArea && "NoteForbiddenZoneHint".equals(c.getName())){
+            style(c);c.setForeground(MUTED);return;
+        }
         if(c instanceof JScrollPane && ((JScrollPane)c).getViewport().getView()!=null && "NoteEditStatus".equals(((JScrollPane)c).getViewport().getView().getName())) {
             shell(c);c.setBorder(new TopHairlineBorder(saved.get(c).insets));shell(((JScrollPane)c).getViewport());
             JComponent view=(JComponent)((JScrollPane)c).getViewport().getView();style(view);view.setForeground(MUTED);return;
@@ -223,7 +240,7 @@ public final class UiStyle {
     static boolean isPrimaryButton(Component c){
         if(!(c instanceof JButton)||c instanceof JMenuItem)return false;
         String t=((JButton)c).getText();
-        return t!=null&&(t.equals("更新")||t.startsWith("编辑文章")||t.equals("书写"));
+        return t!=null&&(t.equals("更新")||t.equals("应用版式")||t.startsWith("编辑文章")||t.equals("书写"));
     }
     private static final class ControlBorder implements Border {
         final Insets insets;
@@ -323,6 +340,18 @@ public final class UiStyle {
             boolean topDeviceSection=c.getParent()!=null&&c.getParent().getComponentCount()>0&&c.getParent().getComponent(0)==c&&!c.getClass().getName().startsWith("com.kenjoy.kenjoycnc.processTabs.NoteTab$");
             if(!topDeviceSection){g.setColor(UiPalette.HAIRLINE);g.fillRect(2,1,Math.max(0,c.getWidth()-4),1);}
             original.paint(g,c);}finally{g.dispose();}}
+    }
+    private static final class SectionToggleUI extends ButtonUI {
+        private static final BasicButtonUI CONTENT=new BasicButtonUI(){
+            protected void paintText(Graphics graphics,AbstractButton b,Rectangle rect,String text){
+                Graphics2D g=(Graphics2D)graphics.create();
+                try{desktopText(g);g.setColor(b.isEnabled()?b.getForeground():UiPalette.DISABLED_TEXT);BasicGraphicsUtils.drawStringUnderlineCharAt(g,text,b.getDisplayedMnemonicIndex(),rect.x,rect.y+g.getFontMetrics().getAscent());}finally{g.dispose();}
+            }
+        };
+        final ButtonUI original;SectionToggleUI(ButtonUI ui){original=ui;}
+        public void installUI(JComponent c){original.installUI(c);}public void uninstallUI(JComponent c){original.uninstallUI(c);}
+        public Dimension getPreferredSize(JComponent c){return original.getPreferredSize(c);}public Dimension getMinimumSize(JComponent c){return original.getMinimumSize(c);}public Dimension getMaximumSize(JComponent c){return original.getMaximumSize(c);}
+        public void paint(Graphics graphics,JComponent c){Graphics2D g=(Graphics2D)graphics.create();try{AbstractButton b=(AbstractButton)c;ButtonModel model=b.getModel();crisp(g);boolean hot=c.isEnabled()&&(model.isRollover()||model.isPressed()&&model.isArmed());g.setColor(hot?UiPalette.HOVER:SURFACE);g.fillRoundRect(1,1,Math.max(0,c.getWidth()-2),Math.max(0,c.getHeight()-2),UiMetrics.CONTROL_ARC,UiMetrics.CONTROL_ARC);CONTENT.paint(g,c);}finally{g.dispose();}}
     }
     private static final class RoundedButtonUI extends ButtonUI {
         private static final BasicButtonUI CONTENT=new BasicButtonUI(){

@@ -21,6 +21,7 @@ public final class ResponsiveWorkspace {
     private final JButton actual=new JButton("1:1"),minus=new JButton("−"),plus=new JButton("+");
     private final JLabel percent=new JLabel("100%",SwingConstants.CENTER);
     private final JComponent rotations,device;
+    private final JLabel direction=new JLabel("加工方向：0°");
     private final javax.swing.Timer timer;
     private final Map<Object,ZoomState> states=new WeakHashMap<Object,ZoomState>();
     private CanvasHost host;
@@ -71,7 +72,17 @@ public final class ResponsiveWorkspace {
         JComponent left=(JComponent)UiStyle.field(app,"f");leftPane=ancestor(left);
         device=(JComponent)UiStyle.field(app,"y");rightPane=ancestor(device);
         rotations=(JComponent)UiStyle.field(app,"G");
-        for(Component item:rotations.getComponents())if(item instanceof JButton){JButton button=(JButton)item;String label=button.getText();if(label!=null&&label.startsWith("旋转")){button.setText("加工方向 "+label.substring(2));button.setToolTipText("改变画布与输出刀路的加工方向；与显示缩放不同");}}
+        for(Component item:rotations.getComponents())if(item instanceof JButton){JButton button=(JButton)item;String label=button.getText();if(label!=null&&label.startsWith("旋转")){
+            button.setText("加工方向 "+label.substring(2));button.setToolTipText("切回预览并改变加工方向；纸张预览与下次输出同步");
+            ActionListener[] original=button.getActionListeners();for(ActionListener listener:original)button.removeActionListener(listener);
+            button.addActionListener(event->{try{
+                Object mode=UiStyle.field(app,"g");
+                if(mode!=null&&mode.getClass().getName().endsWith(".NoteTab"))mode.getClass().getMethod("setInlineEditing",boolean.class).invoke(mode,false);
+                for(ActionListener listener:original)listener.actionPerformed(event);
+                updateDirection();
+            }catch(Exception error){throw new IllegalStateException("无法切换加工方向",error);}});
+        }}
+        direction.setName("MachineProcessingDirection");rotations.add(direction);
         timer=new javax.swing.Timer(55,e->adapt());timer.setRepeats(false);
         Container centerParent=viewportPane.getParent();centerParent.remove(viewportPane);workspace.add(viewportPane,BorderLayout.CENTER);
         footer.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(1,0,0,0,UiPalette.HAIRLINE),new EmptyBorder(2,6,2,6)));
@@ -189,7 +200,11 @@ public final class ResponsiveWorkspace {
         Dimension now=viewportPane.getViewport().getExtentSize();if(!now.equals(extent)){extent=new Dimension(now);schedule();}
     }
     private static void sidebar(JScrollPane pane,int width){Dimension p=pane.getPreferredSize();if(p.width!=width){pane.setPreferredSize(new Dimension(width,p.height));pane.revalidate();}}
-    private void updateControls(){boolean enabled=access!=null;for(AbstractButton b:new AbstractButton[]{fitPage,fitWidth,actual,minus,plus})b.setEnabled(enabled);fitPage.setSelected(enabled&&state().view==View.PAGE);fitWidth.setSelected(enabled&&state().view==View.WIDTH);percent.setText(enabled?Math.round(access.scale()*100)+"%":"视图");}
+    private void updateControls(){boolean enabled=access!=null;for(AbstractButton b:new AbstractButton[]{fitPage,fitWidth,actual,minus,plus})b.setEnabled(enabled);fitPage.setSelected(enabled&&state().view==View.PAGE);fitWidth.setSelected(enabled&&state().view==View.WIDTH);percent.setText(enabled?Math.round(access.scale()*100)+"%":"视图");updateDirection();}
+    private void updateDirection(){
+        try{int angle=access==null?0:Math.round(access.angle.getFloat(access.canvas));direction.setText("加工方向："+((angle%360+360)%360)+"°");}
+        catch(IllegalAccessException error){throw new IllegalStateException(error);}
+    }
     private static float clamp(float n,float low,float high){return Math.max(low,Math.min(high,n));}private static int clamp(int n,int low,int high){return Math.max(low,Math.min(high,n));}
     private static final class CanvasAccess {
         final JComponent canvas;final Field zoom,width,height,angle;final Method rotate;

@@ -69,9 +69,11 @@ public final class OpenFileWorkflow {
         open.setEnabled(opening==null&&extensions().length>0);
         Object current=modes.getSelectedItem();
         update.setText("更新");
+        update.setVisible(!isNote(current));
+        if(update.getParent()==pdfPage.getParent())update.getParent().setVisible(!isNote(current));
         update.setToolTipText(isNote(current)?"应用页面参数并重新随机未指定字体的字形":null);
-        if(isNote(current)){pdfPage.setVisible(true);pdfPage.setEnabled(false);pdfPage.setToolTipText("笔记模式没有当前 PDF；请在图片或表格模式打开 PDF 后使用");}
-        else{pdfPage.setToolTipText(null);File selected=(File)field(app,"h");pdfPage.setEnabled(selected!=null&&selected.getName().toLowerCase(Locale.ROOT).endsWith(".pdf"));}
+        if(isNote(current)){pdfPage.setVisible(false);pdfPage.setEnabled(false);pdfPage.setToolTipText("笔记模式没有当前 PDF；请在图片或表格模式打开 PDF 后使用");}
+        else{pdfPage.setVisible(true);pdfPage.setToolTipText(null);File selected=(File)field(app,"h");pdfPage.setEnabled(selected!=null&&selected.getName().toLowerCase(Locale.ROOT).endsWith(".pdf"));}
     }
 
     private void saveFile(ActionEvent event){

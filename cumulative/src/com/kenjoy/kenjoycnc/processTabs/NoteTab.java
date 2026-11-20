@@ -31,7 +31,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     private PageInfo pageInfo;
     private JButton btnPrePage,btnNextPage,btnSetContent,btnSave,btnDelete,btnChooseFont;
     private StringBuffer content;
-    private float firstLineOffset;
+    private float firstLineOffset; // Retained by the original-member compatibility check.
     private WordContentFormat contentSet;
     private final List pageDatas=new ArrayList();
     private int curPage;
@@ -63,13 +63,12 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
 
     private final NoteSelection selection=new NoteSelection();
     private volatile NoteFonts catalogue;
-    private final Deque<NoteDocument> undo=new ArrayDeque<NoteDocument>(),redo=new ArrayDeque<NoteDocument>();
     private SwingWorker<Prepared,Void> pending;
     private SwingWorker<NoteDocument,Void> loading;
     private long request;
     private long idHighWater=1;
     private boolean binding;
-    private String savedDocument="",documentState="";
+    private String savedDocument="";
     private Path documentFile;
     private volatile com.kenjoy.kenjoycnc.c.a machineJobGenerator;
     private volatile String machineJobSource;
@@ -77,17 +76,33 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     private final JLabel selectionFontLabel=new JLabel(){public Dimension getPreferredSize(){Dimension d=super.getPreferredSize();d.width=1;return d;}public Dimension getMinimumSize(){Dimension d=super.getMinimumSize();d.width=0;return d;}};
     private final JTextArea status=new JTextArea("应用版式保留已选字形；重新随机只影响未指定字体的字。",2,1){public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};
     private NoteSidebarView sidebar;
+    private JPanel pageNavigation;
     private JButton fontButton,resetButton,undoButton,redoButton,clearMissingButton;
     private JCheckBox randomCopies;
+    private NoteAppearancePanel appearancePanel;
+    private Set<Long> appearanceTargets;
+    private long appearanceRequestRevision=-1;
+    private JList<ForbiddenZoneItem> forbiddenZoneList;
+    private DefaultListModel<ForbiddenZoneItem> forbiddenZoneModel;
+    private JButton editForbiddenZoneButton,deleteForbiddenZoneButton;
+    private JButton importForbiddenTemplateButton,exportForbiddenTemplateButton;
+    private NoteForbiddenZoneManager forbiddenZoneManager;
+    private String selectedForbiddenZone;
+    private boolean refreshingForbiddenZones;
     private volatile String lastFailure;
     private static final class Prepared {
         final NoteDocument document;final NoteLayout layout;
         Prepared(NoteDocument d,NoteLayout l){document=d;layout=l;}
     }
+    private static final class ForbiddenZoneItem {
+        final String id,label;final boolean rule;final int page;
+        ForbiddenZoneItem(String id,String label,boolean rule,int page){this.id=id;this.label=label;this.rule=rule;this.page=page;}
+        public String toString(){return label;}
+    }
     public NoteTab(KenjoyDraw owner) {
         super(owner);saveName="note";setLayout(new BoxLayout(this,BoxLayout.Y_AXIS));setName("NoteEditControls");
         setBorder(BorderFactory.createEmptyBorder(2,3,4,3));
-        JPanel article=section("文章");btnSetContent=button("编辑文章…");btnChooseFont=button("默认字体…");btnChooseFont.setToolTipText("设置文章默认字体与字形选取比例；点击“更新”后应用到未指定字");
+        JPanel article=section("文章");btnSetContent=button("编辑文章…");btnChooseFont=button("默认字体…");btnChooseFont.setToolTipText("设置文章默认字体与字形选取比例；点击“重抽未指定字形”后应用到未指定字");
         JButton saveDoc=new JButton("保存文章…");saveDoc.setName("NoteSaveDocument");saveDoc.addActionListener(e->saveDocumentDialog());
         JButton loadDoc=new JButton("打开文章…");loadDoc.setName("NoteOpenDocument");loadDoc.addActionListener(e->openDocumentDialog());
         JButton refreshFonts=new JButton("刷新字库");refreshFonts.setToolTipText("字库文件变化后重新扫描");refreshFonts.addActionListener(e->refreshFonts());
@@ -100,18 +115,60 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         tfLines=number(30);tfWordGap=number(1);form(paper,5,"行数 / 字距",tfLines,tfWordGap);tfWordGap.setToolTipText("字距（毫米）");
         tfFontSize=number(95);form(paper,6,"字号 %",tfFontSize,new JLabel());
         JButton applyLayout=new JButton("应用版式");applyLayout.setName("NoteApplyLayout");applyLayout.setToolTipText("重新排版，保留已经选定的字形");applyLayout.addActionListener(e->applyLayoutAsync());
-        JButton rerandomize=new JButton("更新");rerandomize.setName("NoteRerandomize");rerandomize.setToolTipText("根据默认字体与配比重新选取未指定字的字形");rerandomize.addActionListener(e->rerandomizeAsync());
-        wide(paper,7,buttons(applyLayout,rerandomize));
+        JButton rerandomize=new JButton("重抽未指定字形");rerandomize.setName("NoteRerandomize");rerandomize.setToolTipText("根据默认字体与配比重新选取未指定字的字形；保留手动指定字体，可撤销");rerandomize.addActionListener(e->rerandomizeAsync());
+        JPanel layoutActions=new JPanel(new GridLayout(0,1,0,4));layoutActions.add(applyLayout);layoutActions.add(rerandomize);wide(paper,7,layoutActions);
+        JPanel appearanceSection=section("字形与随机");
+        appearancePanel=new NoteAppearancePanel(new NoteAppearancePanel.Host(){
+            public NoteAppearance.Config current(boolean selected){return appearanceConfig(selected);}
+            public boolean busy(){return isBusy();}
+            public void notice(String text){message(text);}
+            public void capture(boolean selected){finishEditorComposition();appearanceTargets=selected?selection.capture():null;appearanceRequestRevision=editorSession.revision();}
+            public void apply(NoteAppearance.Config c,boolean selected){if(appearanceRequestValid())applyAppearanceTo(c,appearanceTargets);}
+            public void rerandomize(boolean selected){if(appearanceRequestValid())rerandomizeAppearanceTo(appearanceTargets);}
+        });wide(appearanceSection,0,appearancePanel);
+        JPanel forbidden=section("禁写区");
+        forbiddenZoneModel=new DefaultListModel<ForbiddenZoneItem>();forbiddenZoneList=new JList<ForbiddenZoneItem>(forbiddenZoneModel){
+            public boolean getScrollableTracksViewportWidth(){return true;}
+            public String getToolTipText(MouseEvent event){int index=locationToIndex(event.getPoint());Rectangle bounds=index<0?null:getCellBounds(index,index);return bounds!=null&&bounds.contains(event.getPoint())?getModel().getElementAt(index).label:null;}
+        };forbiddenZoneList.setName("NoteForbiddenZoneList");forbiddenZoneList.setVisibleRowCount(4);forbiddenZoneList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);ToolTipManager.sharedInstance().registerComponent(forbiddenZoneList);
+        forbiddenZoneList.addListSelectionListener(e->{if(!e.getValueIsAdjusting()&&!refreshingForbiddenZones){ForbiddenZoneItem item=forbiddenZoneList.getSelectedValue();selectedForbiddenZone=item==null?null:item.id;updateForbiddenZoneButtons();if(notePanel!=null)notePanel.repaint();if(forbiddenZoneManager!=null&&forbiddenZoneManager.isDisplayable())forbiddenZoneManager.select(selectedForbiddenZone);}});
+        JScrollPane forbiddenScroll=new JScrollPane(forbiddenZoneList,JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,JScrollPane.HORIZONTAL_SCROLLBAR_NEVER){
+            public Dimension getPreferredSize(){
+                Component cell=forbiddenZoneList.getCellRenderer().getListCellRendererComponent(forbiddenZoneList,new ForbiddenZoneItem("","禁写区",true,0),0,false,false);
+                int row=Math.max(forbiddenZoneList.getFontMetrics(forbiddenZoneList.getFont()).getHeight()+4,cell.getPreferredSize().height);Insets border=getInsets();
+                return new Dimension(1,row*forbiddenZoneList.getVisibleRowCount()+border.top+border.bottom);
+            }
+            public Dimension getMinimumSize(){return new Dimension(0,getPreferredSize().height);}
+        };forbiddenScroll.setName("NoteForbiddenZoneScroll");wide(forbidden,0,forbiddenScroll);
+        JButton addForbidden=new JButton("添加规则…");addForbidden.setName("NoteAddForbiddenZone");addForbidden.setToolTipText("添加多页或指定页禁写区规则");addForbidden.addActionListener(e->addForbiddenZone());
+        editForbiddenZoneButton=new JButton("编辑选中…");editForbiddenZoneButton.setName("NoteEditForbiddenZone");editForbiddenZoneButton.addActionListener(e->editForbiddenZone());
+        deleteForbiddenZoneButton=new JButton("删除选中");deleteForbiddenZoneButton.setName("NoteDeleteForbiddenZone");deleteForbiddenZoneButton.addActionListener(e->deleteForbiddenZone());
+        wide(forbidden,1,buttons(addForbidden,editForbiddenZoneButton));
+        JButton drawForbidden=new JButton("在预览中拖拽绘制");drawForbidden.setName("NoteDrawForbiddenZone");drawForbidden.addActionListener(e->startForbiddenZoneDrawing());
+        JButton pageException=new JButton("本页例外…");pageException.setName("NoteForbiddenZoneException");pageException.setToolTipText("设置当前页停用的继承规则");pageException.addActionListener(e->editForbiddenZoneException());
+        JButton addPageZone=new JButton("添加本页区域…");addPageZone.setName("NoteAddPageForbiddenZone");addPageZone.addActionListener(e->addPageForbiddenZone());
+        wide(forbidden,2,drawForbidden);
+        wide(forbidden,3,buttons(deleteForbiddenZoneButton,pageException));
+        wide(forbidden,4,addPageZone);
+        importForbiddenTemplateButton=new JButton("导入模板…");importForbiddenTemplateButton.setName("NoteImportForbiddenTemplate");importForbiddenTemplateButton.setToolTipText("导入禁写区规则模板");importForbiddenTemplateButton.addActionListener(e->importForbiddenZoneTemplate());
+        exportForbiddenTemplateButton=new JButton("导出模板…");exportForbiddenTemplateButton.setName("NoteExportForbiddenTemplate");exportForbiddenTemplateButton.setToolTipText("导出禁写区规则模板");exportForbiddenTemplateButton.addActionListener(e->exportForbiddenZoneTemplate());
+        wide(forbidden,5,buttons(importForbiddenTemplateButton,exportForbiddenTemplateButton));
+        JButton manageForbidden=new JButton("管理全部规则…");manageForbidden.setName("NoteManageForbiddenZones");manageForbidden.addActionListener(e->showForbiddenZoneManager());wide(forbidden,6,manageForbidden);
+        JTextArea forbiddenHint=new JTextArea("点选红框选中，双击编辑。\n更多设置见“管理全部规则”。",2,1){
+            public Dimension getPreferredSize(){Dimension size=super.getPreferredSize();size.width=1;return size;}
+            public Dimension getMinimumSize(){Dimension size=getPreferredSize();size.width=0;return size;}
+        };forbiddenHint.setName("NoteForbiddenZoneHint");forbiddenHint.setEditable(false);forbiddenHint.setFocusable(false);forbiddenHint.setOpaque(false);forbiddenHint.setLineWrap(true);forbiddenHint.setWrapStyleWord(true);wide(forbidden,7,forbiddenHint);
         JPanel chosen=section("预览选字");btnPrePage=button("上一页");btnNextPage=button("下一页");tfCurPage=number(1);tfCurPage.setColumns(2);tfCurPage.addActionListener(this);labelMaxPage=new JLabel("/0");
-        JPanel pageNav=new JPanel(new GridBagLayout());cell(pageNav,0,0,1,0,btnPrePage);cell(pageNav,1,0,1,1,tfCurPage);cell(pageNav,2,0,1,0,labelMaxPage);cell(pageNav,3,0,1,0,btnNextPage);wide(chosen,0,pageNav);
+        pageNavigation=new JPanel(new GridBagLayout());pageNavigation.setName("NotePageNavigation");btnPrePage.setName("NotePreviousPage");btnNextPage.setName("NoteNextPage");tfCurPage.setName("NoteCurrentPage");labelMaxPage.setName("NotePageTotal");
+        cell(pageNavigation,0,0,1,0,btnPrePage);cell(pageNavigation,1,0,1,1,tfCurPage);cell(pageNavigation,2,0,1,0,labelMaxPage);cell(pageNavigation,3,0,1,0,btnNextPage);wide(chosen,0,pageNavigation);
         JToggleButton multi=new JToggleButton("多选：关");multi.setName("NoteMultiSelect");multi.setToolTipText("开启后连续点选，再点已选字可取消");multi.addActionListener(e->{selection.multiple=multi.isSelected();multi.setText(selection.multiple?"多选：开":"多选：关");});
         JButton line=new JButton("选整行");line.addActionListener(e->selectCurrentLine());JButton clear=new JButton("取消选区");clear.addActionListener(e->{selection.clear();selectionChanged();});wide(chosen,1,buttons(multi,line,clear));
         selectionLabel.setName("NoteSelectionCount");wide(chosen,2,selectionLabel);selectionFontLabel.setName("NoteSelectionFont");wide(chosen,3,selectionFontLabel);
         fontButton=new JButton("指定字体…");fontButton.setName("NoteAssignFont");fontButton.setToolTipText("只修改当前所选字的字体");fontButton.addActionListener(e->chooseSelectionFont());
-        resetButton=new JButton("恢复默认");resetButton.setToolTipText("取消所选字的手动字体指定");resetButton.addActionListener(e->applyFont(null));wide(chosen,4,buttons(fontButton,resetButton));
+        resetButton=new JButton("恢复默认字体");resetButton.setToolTipText("取消所选字的手动字体指定");resetButton.addActionListener(e->applyFont(null));wide(chosen,4,buttons(fontButton,resetButton));
         undoButton=new JButton("撤销");undoButton.setName("NoteUndo");undoButton.addActionListener(e->history(false));redoButton=new JButton("重做");redoButton.setName("NoteRedo");redoButton.addActionListener(e->history(true));wide(chosen,5,buttons(undoButton,redoButton));
         clearMissingButton=new JButton("清除红框…");clearMissingButton.setName("NoteClearMissing");clearMissingButton.setToolTipText("处理整篇文章所有缺字红框，可用指定字符或空格替代，也可删除；支持撤销");clearMissingButton.addActionListener(e->chooseMissingAction());clearMissingButton.setVisible(false);wide(chosen,6,clearMissingButton);
-        randomCopies=new JCheckBox("每份重新随机");randomCopies.setToolTipText("批量导出时每份重新随机未指定字，保留手动指定字体");
+        randomCopies=new JCheckBox("每份重新随机");randomCopies.setToolTipText("启用新随机误差时，每份只重抽误差、保留字体；旧文章沿用原随机方式");
         status.setName("NoteEditStatus");status.setAlignmentX(LEFT_ALIGNMENT);status.setEditable(false);status.setLineWrap(true);status.setWrapStyleWord(true);status.setOpaque(false);status.setFont(UIManager.getFont("Label.font"));status.setBorder(BorderFactory.createEmptyBorder(4,4,2,4));
         JScrollPane statusPane=new JScrollPane(status,JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,JScrollPane.HORIZONTAL_SCROLLBAR_NEVER){public Dimension getPreferredSize(){Dimension d=super.getPreferredSize();d.width=1;d.height=status.getFontMetrics(status.getFont()).getHeight()*2+status.getInsets().top+status.getInsets().bottom+4;return d;}public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};statusPane.setBorder(BorderFactory.createEmptyBorder());statusPane.setAlignmentX(LEFT_ALIGNMENT);add(statusPane);
         editToggle=new JToggleButton("进入编辑模式");editToggle.setName("NoteEditMode");editToggle.addActionListener(e->setEditing(editToggle.isSelected()));
@@ -122,10 +179,14 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         if(model.getSize()==0){PageInfo p=new PageInfo("默认",210,297,31.8f,31.8f,25.4f,25.4f,30,95,true);p.space=1;model.addElement(p);}
         pageInfo=(PageInfo)model.getElementAt(0);cbSettings.setSelectedIndex(0);binding=false;setPageInfo(pageInfo);applyFonts();
         document.page=copyPage(pageInfo);editorSession.reset(document);document=editorSession.mutableDocument();
-        contentSet=document.format;content=new StringBuffer();supportFiles=new String[]{"kjnote","txt","doc","docx"};savedDocument=documentState=semanticState(document);captureInputFonts();refreshEditGeometry();selectionChanged();
+        contentSet=document.format;content=new StringBuffer();supportFiles=new String[]{"kjnote","txt","doc","docx"};savedDocument=document.encode();captureInputFonts();refreshEditGeometry();selectionChanged();
         recoveryStartRevision=editorSession.revision();SwingUtilities.invokeLater(this::restoreRecovery);
     }
-    private JPanel section(String title){JPanel p=new JPanel(new GridBagLayout()){public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};p.setAlignmentX(LEFT_ALIGNMENT);p.setBorder(BorderFactory.createTitledBorder(title));add(p);return p;}
+    private JPanel section(String title){
+        JPanel p=new JPanel(new GridBagLayout()){public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};p.setAlignmentX(LEFT_ALIGNMENT);
+        String name="字形与随机".equals(title)?"NoteAppearanceSection":"禁写区".equals(title)?"NoteForbiddenSection":"预览选字".equals(title)?"NoteSelectionSection":null;
+        if(name!=null)add(new NoteCollapsibleSection(title,name,p));else{p.setBorder(BorderFactory.createTitledBorder(title));add(p);}return p;
+    }
     private static JPanel buttons(AbstractButton... buttons){JPanel p=new JPanel(new GridLayout(1,buttons.length,4,0));for(AbstractButton b:buttons){b.setMargin(new Insets(3,5,3,5));p.add(b);}return p;}
     private static void cell(JPanel p,int x,int y,int span,double weight,Component c){GridBagConstraints g=new GridBagConstraints();g.gridx=x;g.gridy=y;g.gridwidth=span;g.weightx=weight;g.fill=GridBagConstraints.HORIZONTAL;g.anchor=GridBagConstraints.WEST;g.insets=new Insets(2,3,2,3);p.add(c,g);}
     private static void wide(JPanel p,int row,Component c){cell(p,0,row,3,1,c);}
@@ -134,7 +195,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     private JButton button(String text){JButton b=new JButton(text);b.addActionListener(this);return b;}
     private JFormattedTextField number(double value){JFormattedTextField f=new JFormattedTextField(java.text.NumberFormat.getNumberInstance());f.setColumns(4);f.setValue(value);return f;}
     private float value(JFormattedTextField f) throws Exception {f.commitEdit();Object n=f.getValue();float v=n instanceof Number?((Number)n).floatValue():Float.parseFloat(f.getText());if(!Float.isFinite(v))throw new IOException("数值必须为有限值");return v;}
-    private static PageInfo copyPage(PageInfo p){return new Gson().fromJson(new Gson().toJson(p),PageInfo.class);}
+    private static PageInfo copyPage(PageInfo p){return NoteDocument.copyPage(p);}
     private PageInfo readPage() throws Exception {
         PageInfo p=copyPage(pageInfo);p.name=String.valueOf(cbSettings.getSelectedItem());p.pageWidth=value(tfWidth);p.pageHeight=value(tfHeight);p.leftGap=value(tfLeftGap);p.rightGap=value(tfRightGap);p.topGap=value(tfTopGap);p.bottomGap=value(tfBottomGap);
         float lines=value(tfLines);if(lines!=Math.rint(lines)||lines<=0)throw new IOException("行数必须为正整数");p.lineNum=(int)lines;p.space=value(tfWordGap);p.fontSize=value(tfFontSize);if(p.space<0)throw new IOException("字距不能为负数");return p;
@@ -169,8 +230,43 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     private static String escape(String t){return t==null?"":t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\n","<br>");}
     private void reportFailure(Throwable error){while(error.getCause()!=null)error=error.getCause();lastFailure=error.getMessage()==null?error.toString():error.getMessage();message(lastFailure);System.err.println("NOTE_EDIT_ERROR "+lastFailure);}
     public void processAsync(){rerandomizeAsync();}
-    public void applyLayoutAsync(){if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::applyLayoutAsync);return;}if(pending==null&&loading==null){try{NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();d.page=readPage();validatePageCandidate(d);editorSession.commit(t,d,NoteEditSession.Kind.OTHER);changed();if(notePanel!=null)notePanel.syncEditor();}catch(Exception e){failure(e);}return;}if(isBusy()){message("请等待当前文章修改完成。");return;}try{NoteDocument d=document.copy();d.page=readPage();submit(d,true,false);}catch(Exception e){failure(e);}}
-    public void rerandomizeAsync(){if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::rerandomizeAsync);return;}if(pending==null&&loading==null){try{captureInputFonts();NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();d.page=readPage();d.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));d.pool.clear();d.chances=d.page.fontChance==null?null:d.page.fontChance.clone();for(NoteDocument.Atom atom:d.atoms)if(atom.override==null){atom.inputFonts=d.page.fontPath==null?null:d.page.fontPath.clone();atom.inputChances=d.page.fontChance==null?null:d.page.fontChance.clone();atom.inputGeneration=d.generation+1;}d.rerandomize();validatePageCandidate(d);editorSession.commit(t,d,NoteEditSession.Kind.UPDATE);changed();if(notePanel!=null)notePanel.syncEditor();}catch(Exception e){failure(e);}return;}if(isBusy()){message("请等待当前文章修改完成。");return;}try{NoteDocument d=document.copy();d.page=readPage();d.pool.clear();d.chances=d.page.fontChance==null?null:d.page.fontChance.clone();d.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));d.rerandomize();submit(d,true,false);}catch(Exception e){failure(e);}}
+    public void applyLayoutAsync(){
+        if(!SwingUtilities.isEventDispatchThread()){
+            SwingUtilities.invokeLater(this::applyLayoutAsync);return;
+        }
+        if(pending!=null||loading!=null){message("请等待当前文章修改完成。");return;}
+        try{
+            finishEditorComposition();
+            NoteEditSession.Transaction transaction=editorSession.capture();
+            NoteDocument candidate=transaction.document();
+            candidate.page=readPage();validatePageCandidate(candidate);
+            editorSession.commit(transaction,candidate,NoteEditSession.Kind.OTHER);
+            // Inline layout consumes a snapshot and rejects results from older revisions.
+            changed();if(notePanel!=null)notePanel.syncEditor();
+        }catch(Exception error){failure(error);}
+    }
+    public void rerandomizeAsync(){
+        if(!SwingUtilities.isEventDispatchThread()){
+            SwingUtilities.invokeLater(this::rerandomizeAsync);return;
+        }
+        if(pending!=null||loading!=null){message("请等待当前文章修改完成。");return;}
+        try{
+            finishEditorComposition();captureInputFonts();
+            NoteEditSession.Transaction transaction=editorSession.capture();
+            NoteDocument candidate=transaction.document();candidate.page=readPage();
+            candidate.shapes=NoteDocument.ShapeSettings.capture((FontsSetData)Storage.getStore(FontsSetData.class));
+            candidate.pool.clear();
+            candidate.chances=candidate.page.fontChance==null?null:candidate.page.fontChance.clone();
+            for(NoteDocument.Atom atom:candidate.atoms)if(atom.override==null){
+                atom.inputFonts=candidate.page.fontPath==null?null:candidate.page.fontPath.clone();
+                atom.inputChances=candidate.page.fontChance==null?null:candidate.page.fontChance.clone();
+                atom.inputGeneration=candidate.generation+1;
+            }
+            candidate.rerandomize();validatePageCandidate(candidate);
+            editorSession.commit(transaction,candidate,NoteEditSession.Kind.UPDATE);
+            changed();if(notePanel!=null)notePanel.syncEditor();
+        }catch(Exception error){failure(error);}
+    }
     public void process(){processAsync();}
     private SwingWorker<Prepared,Void> submit(final NoteDocument candidate,final boolean history,final boolean newDocument){return submit(candidate,history,newDocument,null);}
     private SwingWorker<Prepared,Void> submit(final NoteDocument candidate,final boolean history,final boolean newDocument,final Runnable success) {return submit(candidate,history,newDocument,success,null);}
@@ -197,7 +293,8 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
                     if(newDocument)idHighWater=p.document.nextId;else idHighWater=Math.max(idHighWater,p.document.nextId);p.document.nextId=idHighWater;
                     document=p.document;layout=p.layout;
                     if(newDocument)editorSession.reset(document);else{NoteEditSession.Transaction t=editorSession.capture();editorSession.commit(t,document,NoteEditSession.Kind.OTHER);}
-                    document=editorSession.mutableDocument();layoutRevision=editorSession.revision();inlineError=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);documentState=semanticState(document);if(newDocument){curPage=0;selection.clear();undo.clear();redo.clear();savedDocument=documentState;editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();}else selection.retain(document);
+                    document=editorSession.mutableDocument();layoutRevision=editorSession.revision();inlineError=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);
+                    if(newDocument){curPage=0;selection.clear();savedDocument=document.encode();editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();}else selection.retain(document);
                     content=new StringBuffer(document.text);contentSet=document.format;pageDatas.clear();for(NoteLayout.Page page:layout.pages)pageDatas.add(new com.kenjoy.kenjoycnc.l.f(0,page.paths,Collections.emptyList()));
                     if(anchor>=0&&!newDocument){int index=layout.pageOf(anchor);if(index>=0)curPage=index;}
                     changePage();if(notePanel!=null)notePanel.syncEditor();message("已更新。"+(isDirty()?"文章有未保存修改。":""));committed=true;if(success!=null)success.run();recoveryTimer.restart();
@@ -207,9 +304,230 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     }
     private void changePage(){boolean previous=changingPage;changingPage=true;try{int count=geometry().layout.pages.size();curPage=Math.max(0,Math.min(curPage,count-1));
         if(notePanel!=null){NoteLayout.Page page=count==0?new NoteLayout.Page():geometry().layout.pages.get(curPage);notePanel.bind(page,selection,this::selectionChanged,this::chooseSelectionFont,()->applyFont(null),document.page.pageWidth>0?document.page:pageInfo);notePanel.refreshEditor();}
-        labelMaxPage.setText("/"+count);tfCurPage.setValue(count==0?0:curPage+1);btnPrePage.setEnabled(curPage>0);btnNextPage.setEnabled(curPage+1<count);selectionChanged();}finally{changingPage=previous;}}
-    private void cacluteAllPaths(){processAsync();}
-    private void updateSelectionControls(){updateMissingButton();Set<String> names=new LinkedHashSet<String>();int explicit=0;for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id)){NoteDocument.FontRef f=a.override!=null?a.override:a.automatic;if(f!=null)names.add(f.name);if(a.override!=null)explicit++;}String detail=names.size()>1?"混合字体":names.isEmpty()?"点选、拖框或选择整行":names.iterator().next();selectionLabel.setText("已选 "+selection.ids().size()+" 字 · 指定 "+explicit+" 字"+(isDirty()?" · 未保存":""));selectionFontLabel.setText(detail);selectionFontLabel.setToolTipText(detail);boolean valid=!selection.ids().isEmpty()&&!isBusy();fontButton.setEnabled(valid);resetButton.setEnabled(valid);undoButton.setEnabled(editorSession.canUndo());redoButton.setEnabled(editorSession.canRedo());setPageInputsEnabled(!isBusy());if(notePanel!=null)notePanel.repaint();}
+        labelMaxPage.setText("/"+count);tfCurPage.setValue(count==0?0:curPage+1);btnPrePage.setEnabled(curPage>0);btnNextPage.setEnabled(curPage+1<count);refreshForbiddenZoneList();selectionChanged();}finally{changingPage=previous;}}
+    private void refreshForbiddenZoneList(){
+        if(forbiddenZoneModel==null)return;refreshingForbiddenZones=true;try{forbiddenZoneModel.clear();NoteForbiddenZones zones=document.forbiddenZones;if(zones!=null&&zones.rules!=null)for(NoteForbiddenZones.Rule rule:zones.rules)if(rule!=null)
+            forbiddenZoneModel.addElement(new ForbiddenZoneItem(rule.id,rule.toString()+"  ·  "+String.format(Locale.ROOT,"%.1f, %.1f / %.1f × %.1f mm",rule.x,rule.y,rule.width,rule.height),true,0));
+        if(zones!=null){NoteForbiddenZones.PageException exception=zones.exception(curPage+1);if(exception!=null&&exception.additionalZones!=null)for(NoteForbiddenZones.Rect rect:exception.additionalZones)if(rect!=null)
+            forbiddenZoneModel.addElement(new ForbiddenZoneItem(rect.id,"本页额外区域  ·  "+rect.name+"  ·  "+String.format(Locale.ROOT,"%.1f × %.1f mm",rect.width,rect.height),false,curPage+1));}
+        if(selectedForbiddenZone!=null){if(findForbiddenZoneItem(selectedForbiddenZone)==null)selectedForbiddenZone=null;else for(int index=0;index<forbiddenZoneModel.size();index++)if(Objects.equals(forbiddenZoneModel.get(index).id,selectedForbiddenZone)){forbiddenZoneList.setSelectedIndex(index);break;}}
+        }finally{refreshingForbiddenZones=false;}updateForbiddenZoneButtons();if(forbiddenZoneManager!=null&&forbiddenZoneManager.isDisplayable())forbiddenZoneManager.refresh();
+    }
+    private void updateForbiddenZoneButtons(){
+        if(editForbiddenZoneButton==null||deleteForbiddenZoneButton==null)return;ForbiddenZoneItem item=forbiddenZoneList==null?null:forbiddenZoneList.getSelectedValue();
+        editForbiddenZoneButton.setText(item==null?"编辑选中…":item.rule?"编辑规则…":"编辑本页…");editForbiddenZoneButton.setEnabled(!isBusy()&&item!=null);deleteForbiddenZoneButton.setEnabled(!isBusy()&&item!=null);
+        if(forbiddenZoneManager!=null&&forbiddenZoneManager.isDisplayable())forbiddenZoneManager.updateState();
+    }
+    private ForbiddenZoneItem findForbiddenZoneItem(String id){
+        if(id==null||document==null||document.forbiddenZones==null)return null;
+        for(NoteForbiddenZones.Rule rule:document.forbiddenZones.rules)if(Objects.equals(rule.id,id))return new ForbiddenZoneItem(id,rule.name,true,0);
+        for(NoteForbiddenZones.PageException exception:document.forbiddenZones.exceptions)for(NoteForbiddenZones.Rect rect:exception.additionalZones)if(Objects.equals(rect.id,id))return new ForbiddenZoneItem(id,rect.name,false,exception.page);
+        return null;
+    }
+    public String selectedForbiddenZoneId(){return selectedForbiddenZone;}
+    public void selectForbiddenZoneFromCanvas(int pageIndex,String id){
+        selectedForbiddenZone=id==null||findForbiddenZoneItem(id)==null?null:id;
+        if(selectedForbiddenZone!=null&&pageIndex>=0&&pageIndex<geometry().layout.pages.size())activatePreviewPage(pageIndex);
+        else if(forbiddenZoneList!=null){refreshForbiddenZoneList();if(selectedForbiddenZone==null)forbiddenZoneList.clearSelection();}
+        if(notePanel!=null)notePanel.repaint();
+        if(forbiddenZoneManager!=null&&forbiddenZoneManager.isDisplayable())forbiddenZoneManager.select(selectedForbiddenZone);
+    }
+    public void editForbiddenZoneFromCanvas(int pageIndex,String id){selectForbiddenZoneFromCanvas(pageIndex,id);editForbiddenZone(findForbiddenZoneItem(id));}
+    private void previewForbiddenManagerRow(NoteForbiddenZoneManager.Row row){
+        if(row.kind==NoteForbiddenZoneManager.Kind.EXCEPTION){selectForbiddenZoneFromCanvas(-1,null);if(row.page<=geometry().layout.pages.size())activatePreviewPage(row.page-1);else message("第 "+row.page+" 页尚未生成；例外规则仍可在管理窗口编辑。");return;}
+        int target=-1,count=geometry().layout.pages.size();
+        if(row.page>0){if(row.page<=count)target=row.page-1;}
+        else{
+            for(NoteForbiddenZones.ResolvedZone zone:document.forbiddenZones.resolve(curPage+1,document.page.pageWidth,document.page.pageHeight))if(Objects.equals(zone.id,row.id))target=curPage;
+            if(target<0)for(int page=0;page<count&&target<0;page++)for(NoteForbiddenZones.ResolvedZone zone:document.forbiddenZones.resolve(page+1,document.page.pageWidth,document.page.pageHeight))if(Objects.equals(zone.id,row.id)){target=page;break;}
+        }
+        if(notePanel!=null&&notePanel.isEditing())setEditing(false);selectForbiddenZoneFromCanvas(target,row.id);
+        if(target<0){message("此区域当前未在已有页面生效，规则仍可编辑。");return;}
+        if(notePanel!=null)for(NoteForbiddenZones.ResolvedZone zone:document.forbiddenZones.resolve(target+1,document.page.pageWidth,document.page.pageHeight))if(Objects.equals(zone.id,row.id)){
+            float scale=geometry().layout.pageWidth/document.page.pageWidth;Point center=notePanel.previewPoint(target,(zone.x+zone.width/2)*scale,(zone.y+zone.height/2)*scale);notePanel.scrollRectToVisible(new Rectangle(center.x-30,center.y-30,60,60));break;
+        }
+    }
+    public void showForbiddenZoneManager(){
+        if(forbiddenZoneManager==null||!forbiddenZoneManager.isDisplayable())forbiddenZoneManager=new NoteForbiddenZoneManager(this,new NoteForbiddenZoneManager.Host(){
+            public NoteDocument document(){return NoteTab.this.document();}public boolean busy(){return isBusy();}public String selectedId(){return selectedForbiddenZone;}
+            public void preview(NoteForbiddenZoneManager.Row row){previewForbiddenManagerRow(row);}
+            public void edit(NoteForbiddenZoneManager.Row row){if(row.kind==NoteForbiddenZoneManager.Kind.EXCEPTION)editForbiddenZoneException(row.page);else editForbiddenZone(findForbiddenZoneItem(row.id));}
+            public void delete(NoteForbiddenZoneManager.Row row){
+                if(row.kind!=NoteForbiddenZoneManager.Kind.EXCEPTION){deleteForbiddenZone(findForbiddenZoneItem(row.id));return;}
+                if(isBusy()||JOptionPane.showConfirmDialog(NoteTab.this,"清除第 "+row.page+" 页停用的继承规则？本页额外区域会保留。","删除单页例外",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;
+                NoteEditSession.Transaction tx=editorSession.capture();NoteDocument candidate=tx.document();candidate.forbiddenZones.setException(row.page,Collections.<String>emptyList());commitForbiddenZones(tx,candidate,"单页例外已清除；正在重新排版。");
+            }
+            public void addRule(){addForbiddenZone();}public void addPageZone(){addPageForbiddenZone();}public void pageException(){editForbiddenZoneException();}
+        });
+        forbiddenZoneManager.show();
+    }
+    private static JFormattedTextField zoneNumber(float initial){JFormattedTextField field=new JFormattedTextField(java.text.NumberFormat.getNumberInstance(Locale.ROOT));field.setColumns(7);field.setValue(initial);return field;}
+    private List<Integer> parseForbiddenPages(String value)throws IOException{
+        List<Integer> pages=new ArrayList<Integer>();Set<Integer> seen=new HashSet<Integer>();String trimmed=value==null?"":value.trim();if(trimmed.isEmpty())throw new IOException("请填写自定义页面，例如 1,3-5");
+        for(String token:trimmed.split("[,，;；\\s]+")){if(token.isEmpty())continue;int dash=token.indexOf('-');int first,last;
+            try{if(dash<0)first=last=Integer.parseInt(token);else{if(dash==0||dash==token.length()-1||token.indexOf('-',dash+1)>=0)throw new NumberFormatException();first=Integer.parseInt(token.substring(0,dash));last=Integer.parseInt(token.substring(dash+1));}}catch(NumberFormatException invalid){throw new IOException("自定义页面格式无效："+token);}
+            if(first<=0||last<first||last>NoteForbiddenZones.MAX_PAGE_NUMBER||last-first+1>NoteForbiddenZones.MAX_CUSTOM_PAGES)throw new IOException("自定义页面范围无效："+token);
+            for(int page=first;page<=last;page++){if(!seen.add(page))throw new IOException("自定义页面重复："+page);pages.add(page);if(pages.size()>NoteForbiddenZones.MAX_CUSTOM_PAGES)throw new IOException("自定义页面总数过多");}
+        }
+        return pages;
+    }
+    private NoteForbiddenZones.Rule forbiddenRuleDialog(NoteForbiddenZones.Rule original,float x,float y,float width,float height){
+        NoteForbiddenZones.Rule rule=original==null?new NoteForbiddenZones.Rule("禁写区",x,y,width,height,NoteForbiddenZones.DEFAULT_CLEARANCE_MM):original.copy();
+        JTextField name=new JTextField(rule.name,14);JFormattedTextField fx=zoneNumber(rule.x),fy=zoneNumber(rule.y),fw=zoneNumber(rule.width),fh=zoneNumber(rule.height),clearance=zoneNumber(rule.clearanceMm);
+        JComboBox<NoteForbiddenZones.PageMode> mode=new JComboBox<NoteForbiddenZones.PageMode>(NoteForbiddenZones.PageMode.values());mode.setSelectedItem(rule.pageMode==null?NoteForbiddenZones.PageMode.CUSTOM:rule.pageMode);
+        JTextField pages=new JTextField(rule.customPages==null||rule.customPages.isEmpty()?String.valueOf(curPage+1):joinPages(rule.customPages),14);JCheckBox mirror=new JCheckBox("偶数页水平镜像",rule.mirrorEven);
+        JLabel pagesLabel=new JLabel();pagesLabel.setName("NoteForbiddenPagesLabel");mode.setName("NoteForbiddenPageMode");pages.setName("NoteForbiddenPages");
+        JTextArea pageHint=new JTextArea(2,1){public Dimension getPreferredSize(){Dimension size=super.getPreferredSize();size.width=1;return size;}};
+        pageHint.setName("NoteForbiddenPageHint");pageHint.setEditable(false);pageHint.setFocusable(false);pageHint.setOpaque(false);pageHint.setLineWrap(true);pageHint.setWrapStyleWord(true);
+        final String[] customText={pages.getText()};final NoteForbiddenZones.PageMode[] previousMode={null};
+        Runnable updatePages=()->{
+            if(previousMode[0]==NoteForbiddenZones.PageMode.CUSTOM)customText[0]=pages.getText();
+            NoteForbiddenZones.PageMode selected=(NoteForbiddenZones.PageMode)mode.getSelectedItem();boolean custom=selected==NoteForbiddenZones.PageMode.CUSTOM;
+            pages.setEditable(custom);pages.setFocusable(custom);pagesLabel.setText(custom?"指定页码":"页码预览");
+            pages.setText(custom?customText[0]:selected==NoteForbiddenZones.PageMode.ODD?"1；3；5；7；9；…":selected==NoteForbiddenZones.PageMode.EVEN?"2；4；6；8；10；…":"1；2；3；4；5；…");
+            pageHint.setText(custom?"填写示例：1；3；5 或 1-5；8；10-12\n支持分号、逗号或空格分隔；连续页使用短横线“-”。":selected+"自动生效，上方只读显示页码示例。\n如需自行填写页码，请选择“指定页面”。");
+            pages.setToolTipText(custom?"例如 1；3；5 或 1-5；8；10-12":pages.getText());previousMode[0]=selected;
+        };mode.addActionListener(e->updatePages.run());updatePages.run();
+        JPanel fields=new JPanel(new GridLayout(0,2,6,4));fields.add(new JLabel("区域名称"));fields.add(name);fields.add(new JLabel("左上角 X / Y mm"));fields.add(pair(fx,fy));fields.add(new JLabel("宽 / 高 mm"));fields.add(pair(fw,fh));fields.add(new JLabel("安全边距 mm"));fields.add(clearance);fields.add(new JLabel("应用页面"));fields.add(mode);fields.add(pagesLabel);fields.add(pages);fields.add(new JLabel("偶数页处理"));fields.add(mirror);
+        JPanel content=new JPanel(new BorderLayout(0,8));content.add(fields,BorderLayout.CENTER);content.add(pageHint,BorderLayout.SOUTH);
+        JOptionPane options=new JOptionPane(content,JOptionPane.PLAIN_MESSAGE,JOptionPane.OK_CANCEL_OPTION);
+        final JDialog dialog=options.createDialog(this,original==null?"添加禁写区规则":"编辑禁写区规则");dialog.setName("NoteForbiddenRuleDialog");
+        dialog.addWindowListener(new WindowAdapter(){public void windowOpened(WindowEvent event){dialog.pack();dialog.setLocationRelativeTo(NoteTab.this);}});
+        try{
+            for(;;){
+                options.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                dialog.setVisible(true);
+                if(!Integer.valueOf(JOptionPane.OK_OPTION).equals(options.getValue()))return null;
+                try{
+                    String label=name.getText()==null?"":name.getText().trim();if(label.isEmpty()||label.length()>80)throw new IOException("区域名称不能为空且不能超过 80 个字符");
+                    rule.name=label;rule.x=value(fx);rule.y=value(fy);rule.width=value(fw);rule.height=value(fh);rule.clearanceMm=value(clearance);rule.pageMode=(NoteForbiddenZones.PageMode)mode.getSelectedItem();rule.mirrorEven=mirror.isSelected();
+                    rule.customPages=rule.pageMode==NoteForbiddenZones.PageMode.CUSTOM?parseForbiddenPages(pages.getText()):new ArrayList<Integer>();
+                    NoteForbiddenZones candidate=document.forbiddenZones.copy();boolean replaced=false;
+                    for(int index=0;index<candidate.rules.size();index++)if(Objects.equals(candidate.rules.get(index).id,rule.id)){candidate.rules.set(index,rule);replaced=true;break;}
+                    if(!replaced)candidate.rules.add(rule);
+                    candidate.validate(document.page.pageWidth,document.page.pageHeight);
+                    return rule;
+                }catch(Exception error){
+                    reportFailure(error);
+                    JOptionPane.showMessageDialog(dialog,lastFailure,"禁写区规则",JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }finally{dialog.dispose();}
+    }
+    private static JPanel pair(Component a,Component b){JPanel p=new JPanel(new GridLayout(1,2,4,0));p.add(a);p.add(b);return p;}
+    private static String joinPages(List<Integer> values){StringBuilder text=new StringBuilder();for(Integer page:values){if(text.length()>0)text.append(',');text.append(page);}return text.toString();}
+    private void commitForbiddenZones(NoteEditSession.Transaction transaction,NoteDocument candidate,String notice){
+        try{candidate.forbiddenZones.validate(candidate.page.pageWidth,candidate.page.pageHeight);if(editorSession.commit(transaction,candidate,NoteEditSession.Kind.OTHER)){changed();if(notePanel!=null)notePanel.syncEditor();refreshForbiddenZoneList();message(notice);}else message("禁写区设置没有变化。");}
+        catch(Exception error){failure(error);}
+    }
+    private void addForbiddenZone(){
+        if(isBusy())return;NoteForbiddenZones.Rule rule=forbiddenRuleDialog(null,10,10,30,20);if(rule==null)return;
+        NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();candidate.forbiddenZones.rules.add(rule);commitForbiddenZones(transaction,candidate,"禁写区规则已添加；正在重新排版。");
+    }
+    private void editForbiddenZone(){
+        editForbiddenZone(forbiddenZoneList==null?null:forbiddenZoneList.getSelectedValue());
+    }
+    private void editForbiddenZone(ForbiddenZoneItem item){
+        if(isBusy()||item==null)return;if(!item.rule){editForbiddenPageZone(item);return;}
+        NoteForbiddenZones.Rule existing=null;for(NoteForbiddenZones.Rule rule:document.forbiddenZones.rules)if(rule!=null&&Objects.equals(rule.id,item.id)){existing=rule;break;}if(existing==null)return;
+        NoteForbiddenZones.Rule edited=forbiddenRuleDialog(existing,0,0,0,0);if(edited==null)return;NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();
+        for(int i=0;i<candidate.forbiddenZones.rules.size();i++){NoteForbiddenZones.Rule rule=candidate.forbiddenZones.rules.get(i);if(rule!=null&&Objects.equals(rule.id,item.id)){candidate.forbiddenZones.rules.set(i,edited);break;}}
+        commitForbiddenZones(transaction,candidate,"禁写区规则已更新；正在重新排版。");
+    }
+    private void editForbiddenPageZone(ForbiddenZoneItem item){
+        if(item==null||item.rule||item.page<=0)return;NoteForbiddenZones.PageException existingException=document.forbiddenZones.exception(item.page);if(existingException==null||existingException.additionalZones==null)return;
+        NoteForbiddenZones.Rect existing=null;for(NoteForbiddenZones.Rect rect:existingException.additionalZones)if(rect!=null&&Objects.equals(rect.id,item.id)){existing=rect;break;}if(existing==null)return;
+        NoteForbiddenZones.Rect edited=forbiddenRectDialog(existing,0,0,0,0);if(edited==null)return;NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();NoteForbiddenZones.PageException exception=candidate.forbiddenZones.exception(item.page);if(exception==null||exception.additionalZones==null)return;
+        for(int index=0;index<exception.additionalZones.size();index++){NoteForbiddenZones.Rect rect=exception.additionalZones.get(index);if(rect!=null&&Objects.equals(rect.id,item.id)){exception.additionalZones.set(index,edited);break;}}
+        commitForbiddenZones(transaction,candidate,"本页额外禁写区已更新；正在重新排版。");
+    }
+    private void deleteForbiddenZone(){
+        deleteForbiddenZone(forbiddenZoneList==null?null:forbiddenZoneList.getSelectedValue());
+    }
+    private void deleteForbiddenZone(ForbiddenZoneItem item){
+        if(isBusy()||item==null)return;
+        if(JOptionPane.showConfirmDialog(this,"删除所选禁写区？","删除禁写区",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;
+        NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();if(item.rule)candidate.forbiddenZones.removeRule(item.id);else candidate.forbiddenZones.removeExceptionZone(item.page,item.id);
+        commitForbiddenZones(transaction,candidate,"禁写区已删除；正在重新排版。");
+    }
+    private void addPageForbiddenZone(){
+        if(isBusy())return;NoteForbiddenZones.Rect rect=forbiddenRectDialog(null,10,10,30,20);if(rect==null)return;NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();candidate.forbiddenZones.addExceptionZone(curPage+1,rect);commitForbiddenZones(transaction,candidate,"已添加第 "+(curPage+1)+" 页的额外禁写区；正在重新排版。");
+    }
+    private NoteForbiddenZones.Rect forbiddenRectDialog(NoteForbiddenZones.Rect original,float x,float y,float width,float height){
+        NoteForbiddenZones.Rect rect=original==null?new NoteForbiddenZones.Rect("本页禁写区",x,y,width,height,NoteForbiddenZones.DEFAULT_CLEARANCE_MM):original.copy();
+        JTextField name=new JTextField(rect.name,14);JFormattedTextField fx=zoneNumber(rect.x),fy=zoneNumber(rect.y),fw=zoneNumber(rect.width),fh=zoneNumber(rect.height),clearance=zoneNumber(rect.clearanceMm);
+        JPanel fields=new JPanel(new GridLayout(0,2,6,4));fields.add(new JLabel("区域名称"));fields.add(name);fields.add(new JLabel("左上角 X / Y mm"));fields.add(pair(fx,fy));fields.add(new JLabel("宽 / 高 mm"));fields.add(pair(fw,fh));fields.add(new JLabel("安全边距 mm"));fields.add(clearance);
+        JOptionPane options=new JOptionPane(fields,JOptionPane.PLAIN_MESSAGE,JOptionPane.OK_CANCEL_OPTION);
+        final JDialog dialog=options.createDialog(this,"本页额外禁写区");
+        try{
+            for(;;){
+                options.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                dialog.setVisible(true);
+                if(!Integer.valueOf(JOptionPane.OK_OPTION).equals(options.getValue()))return null;
+                try{
+                    String label=name.getText()==null?"":name.getText().trim();if(label.isEmpty()||label.length()>80)throw new IOException("区域名称不能为空且不能超过 80 个字符");
+                    rect.name=label;rect.x=value(fx);rect.y=value(fy);rect.width=value(fw);rect.height=value(fh);rect.clearanceMm=value(clearance);
+                    NoteForbiddenZones candidate=document.forbiddenZones.copy();boolean replaced=false;
+                    for(NoteForbiddenZones.PageException exception:candidate.exceptions)for(int index=0;index<exception.additionalZones.size();index++)if(Objects.equals(exception.additionalZones.get(index).id,rect.id)){exception.additionalZones.set(index,rect);replaced=true;break;}
+                    if(!replaced)candidate.addExceptionZone(curPage+1,rect);
+                    candidate.validate(document.page.pageWidth,document.page.pageHeight);
+                    return rect;
+                }
+                catch(Exception error){reportFailure(error);JOptionPane.showMessageDialog(dialog,lastFailure,"本页额外禁写区",JOptionPane.ERROR_MESSAGE);}
+            }
+        }finally{dialog.dispose();}
+    }
+    private void editForbiddenZoneException(){
+        editForbiddenZoneException(curPage+1);
+    }
+    private void editForbiddenZoneException(int page){
+        if(isBusy())return;NoteForbiddenZones.PageException existing=document.forbiddenZones.exception(page);Set<String> disabled=new LinkedHashSet<String>();if(existing!=null&&existing.disabledRuleIds!=null)disabled.addAll(existing.disabledRuleIds);
+        JPanel panel=new JPanel(new GridLayout(0,1,0,3));panel.add(new JLabel("勾选要在第 "+page+" 页停用的继承规则："));List<JCheckBox> controls=new ArrayList<JCheckBox>();
+        if(document.forbiddenZones.rules!=null)for(NoteForbiddenZones.Rule rule:document.forbiddenZones.rules)if(rule!=null&&rule.appliesTo(page)){JCheckBox check=new JCheckBox(rule.name+"（"+rule.pageMode+"）",disabled.contains(rule.id));check.putClientProperty("ruleId",rule.id);controls.add(check);panel.add(check);}
+        if(controls.isEmpty())panel.add(new JLabel("当前页没有适用的继承规则。"));
+        JScrollPane scroll=new JScrollPane(panel);scroll.setPreferredSize(new Dimension(300,Math.min(300,Math.max(100,controls.size()*32+45))));
+        if(JOptionPane.showConfirmDialog(this,scroll,"设置当前页例外",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE)!=JOptionPane.OK_OPTION)return;
+        for(JCheckBox check:controls){String id=(String)check.getClientProperty("ruleId");if(check.isSelected())disabled.add(id);else disabled.remove(id);}NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();candidate.forbiddenZones.setException(page,disabled);commitForbiddenZones(transaction,candidate,"第 "+page+" 页的例外规则已更新；正在重新排版。");
+    }
+    private void startForbiddenZoneDrawing(){
+        if(isBusy()||notePanel==null)return;if(notePanel.isEditing())setEditing(false);notePanel.setForbiddenZoneDrawing(true);message("请在预览纸张内按住鼠标左键拖拽，松开后设置区域尺寸和批量页面规则。");
+    }
+    public void createForbiddenZoneFromCanvas(int pageIndex,float x,float y,float width,float height){
+        if(isBusy()||pageIndex<0||pageIndex>=layout.pages.size())return;float mmPerPx=document.page.pageWidth/layout.pageWidth;
+        if(!Float.isFinite(mmPerPx)||mmPerPx<=0){failure(new IllegalStateException("当前页面像素与毫米比例无效"));return;}
+        NoteForbiddenZones.Rule rule=forbiddenRuleDialog(null,x*mmPerPx,y*mmPerPx,width*mmPerPx,height*mmPerPx);if(rule==null)return;
+        NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();candidate.forbiddenZones.rules.add(rule);commitForbiddenZones(transaction,candidate,"禁写区已创建；正在重新排版。");
+    }
+    private void exportForbiddenZoneTemplate(){
+        if(isBusy())return;
+        try{File selected=NoteFileDialogs.saveFile(this,"导出禁写区规则模板",new File("禁写区模板.json"),"JSON 模板 (*.json)","json");if(selected==null)return;
+            NoteForbiddenZones.Template template=new NoteForbiddenZones.Template(document.page.pageWidth,document.page.pageHeight,document.forbiddenZones);NoteForbiddenZoneTemplateIO.save(selected.toPath(),template);message("禁写区模板已导出："+selected.getName());}
+        catch(Exception error){failure(error);}
+    }
+    private void importForbiddenZoneTemplate(){
+        if(isBusy())return;
+        try{
+            File selected=NoteFileDialogs.openFile(this,"导入禁写区规则模板",null,"JSON 模板 (*.json)","json");if(selected==null)return;
+            NoteForbiddenZones.Template template=NoteForbiddenZoneTemplateIO.load(selected.toPath());
+            JCheckBox scale=new JCheckBox("按当前纸张宽高分别缩放区域坐标",true);JLabel preview=new JLabel();
+            Runnable updatePreview=()->{
+                try{
+                    NoteForbiddenZones converted=template.convert(document.page.pageWidth,document.page.pageHeight,scale.isSelected());
+                    int extra=0;for(NoteForbiddenZones.PageException exception:converted.exceptions)extra+=exception.additionalZones.size();
+                    String ratio=scale.isSelected()?String.format(Locale.ROOT,"X %.3f，Y %.3f",document.page.pageWidth/template.sourcePageWidthMm,document.page.pageHeight/template.sourcePageHeightMm):"保持原始毫米坐标";
+                    preview.setText("<html>来源纸张："+template.sourcePageWidthMm+" × "+template.sourcePageHeightMm+" mm<br>当前纸张："+document.page.pageWidth+" × "+document.page.pageHeight+" mm<br>转换："+ratio+"<br>规则："+converted.rules.size()+"；单页例外："+converted.exceptions.size()+"；额外区域："+extra+"</html>");
+                }catch(Exception invalid){preview.setText("<html><font color='red'>当前纸张无法应用此模板："+escape(invalid.getMessage())+"</font></html>");}
+            };
+            scale.addActionListener(e->updatePreview.run());updatePreview.run();
+            JPanel panel=new JPanel(new BorderLayout(0,8));panel.add(scale,BorderLayout.NORTH);panel.add(preview,BorderLayout.CENTER);panel.add(new JLabel("导入会替换当前文章的全部禁写区规则和单页例外；此操作可以撤销。"),BorderLayout.SOUTH);
+            if(JOptionPane.showConfirmDialog(this,panel,"预览禁写区模板",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE)!=JOptionPane.OK_OPTION)return;
+            NoteForbiddenZones converted=template.convert(document.page.pageWidth,document.page.pageHeight,scale.isSelected());
+            NoteEditSession.Transaction transaction=editorSession.capture();NoteDocument candidate=transaction.document();candidate.forbiddenZones=converted;
+            commitForbiddenZones(transaction,candidate,"禁写区模板已导入；正在重新排版。");
+        }catch(Exception error){failure(error);}
+    }
+    private void cacluteAllPaths(){processAsync();} // Original entry point; spelling is part of compatibility.
+    private void updateSelectionControls(){updateForbiddenZoneButtons();updateMissingButton();Set<String> names=new LinkedHashSet<String>();int explicit=0;for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id)){NoteDocument.FontRef f=a.override!=null?a.override:a.automatic;if(f!=null)names.add(f.name);if(a.override!=null)explicit++;}String detail=names.size()>1?"混合字体":names.isEmpty()?"点选、拖框或选择整行":names.iterator().next();selectionLabel.setText("已选 "+selection.ids().size()+" 字 · 指定 "+explicit+" 字"+(isDirty()?" · 未保存":""));selectionFontLabel.setText("字体："+detail);selectionFontLabel.setToolTipText(detail);boolean valid=!selection.ids().isEmpty()&&!isBusy();fontButton.setEnabled(valid);resetButton.setEnabled(valid);undoButton.setEnabled(editorSession.canUndo());redoButton.setEnabled(editorSession.canRedo());setPageInputsEnabled(!isBusy());if(appearancePanel!=null)appearancePanel.refresh();if(notePanel!=null)notePanel.repaint();}
     private void setPageInputsEnabled(boolean enabled){cbSettings.setEnabled(enabled);for(JFormattedTextField field:new JFormattedTextField[]{tfWidth,tfHeight,tfLeftGap,tfRightGap,tfTopGap,tfBottomGap,tfLines,tfWordGap,tfFontSize})field.setEnabled(enabled);btnSave.setEnabled(enabled);btnDelete.setEnabled(enabled);btnChooseFont.setEnabled(enabled);}
     private void selectCurrentLine(){if(layout.pages.isEmpty())return;NoteLayout.Page page=layout.pages.get(curPage);for(NoteLayout.Glyph g:page.glyphs)if(selection.ids().contains(g.id)){selection.add(page.lines.get(g.line).ids,false);selectionChanged();return;}message("先点选行内任意一个字，或点击预览左侧 › 选整行。");}
     private void updateMissingButton(){boolean visible=!layout.missing.isEmpty();if(clearMissingButton.isVisible()!=visible){clearMissingButton.setVisible(visible);revalidate();repaint();}clearMissingButton.setEnabled(visible&&!isBusy());}
@@ -238,8 +556,46 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         }catch(Exception error){failure(error);}
     }
     public void applyFont(NoteDocument.FontRef font){if(selection.ids().isEmpty()){message("请先在预览中选字。");return;}NoteEditSession.Transaction t=editorSession.capture();NoteDocument d=editorSession.snapshot();Set<Long> targets=selection.capture();for(NoteDocument.Atom a:d.atoms)if(targets.contains(a.id))a.override=font;editorSession.commit(t,d,NoteEditSession.Kind.FONT);changed();if(notePanel!=null)notePanel.syncEditor();}
-    private static String semanticState(NoteDocument d){return d.encode();}
-    public boolean isDirty(){return editorSession.isDirty();}
+    private NoteAppearance.Config appearanceConfig(boolean selected){
+        if(selected)for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id))return NoteAppearance.copy(NoteAppearance.effective(document,a));
+        return NoteAppearance.copy(document.appearance);
+    }
+    /** Semantic effect changes are committed before any asynchronous font/layout work. */
+    public void applyAppearance(NoteAppearance.Config config,boolean selected){
+        applyAppearanceTo(config,selected?selection.capture():null);
+    }
+    private boolean appearanceRequestValid(){
+        if(appearanceRequestRevision==editorSession.revision())return true;
+        message("正文已变化，已取消过期的字形设置；请重新调整。");if(appearancePanel!=null)appearancePanel.refresh();return false;
+    }
+    private void applyAppearanceTo(NoteAppearance.Config config,Set<Long> targets){
+        if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("字形设置必须在界面线程应用");
+        finishEditorComposition();if(isBusy()){message("请等待当前笔迹生成完成。");return;}
+        if(targets!=null&&targets.isEmpty())throw new IllegalArgumentException("请先选择要调整的文字");
+        NoteAppearance.validate(config);NoteEditSession.Transaction tx=editorSession.capture();NoteDocument next=editorSession.snapshot();
+        boolean rebuild=false;
+        for(NoteDocument.Atom a:next.atoms)if(targets==null||targets.contains(a.id)){
+            rebuild|=NoteAppearance.effective(next,a).continuity!=config.continuity;
+            a.appearanceOverride=targets!=null?NoteAppearance.copy(config):null;
+        }
+        if(targets==null)next.appearance=NoteAppearance.copy(config);
+        NoteAppearance.initialize(next,targets,false,rebuild);
+        if(editorSession.commit(tx,next,NoteEditSession.Kind.OTHER)){appearanceRequestRevision=editorSession.revision();changed();if(notePanel!=null)notePanel.syncEditor();}
+    }
+    public void rerandomizeAppearance(boolean selected){
+        rerandomizeAppearanceTo(selected?selection.capture():null);
+    }
+    private void rerandomizeAppearanceTo(Set<Long> targets){
+        if(!SwingUtilities.isEventDispatchThread())throw new IllegalStateException("随机误差必须在界面线程生成");
+        finishEditorComposition();if(isBusy()){message("请等待当前笔迹生成完成。");return;}
+        if(targets!=null&&targets.isEmpty())throw new IllegalArgumentException("请先选择要调整的文字");
+        NoteEditSession.Transaction tx=editorSession.capture();NoteDocument next=editorSession.snapshot();
+        boolean enabled=false;for(NoteDocument.Atom a:next.atoms)if((targets==null||targets.contains(a.id))&&NoteAppearance.effective(next,a).randomMode!=0){enabled=true;break;}
+        if(!enabled){message("请先为目标文字开启独立随机或关联随机。");return;}
+        NoteAppearance.rerandomizeEffects(next,targets);
+        if(editorSession.commit(tx,next,NoteEditSession.Kind.OTHER)){changed();if(notePanel!=null)notePanel.syncEditor();}
+    }
+    public boolean isDirty(){return editorSession.isDirty()||(appearancePanel!=null&&appearancePanel.hasPending());}
     public boolean hasUnappliedPageSettings(){try{PageInfo requested=readPage(),applied=copyPage(document.page);requested.fontPath=applied.fontPath;requested.fontChance=applied.fontChance;return !samePageSettings(requested,applied);}catch(Exception error){return true;}}
     private static boolean samePageSettings(PageInfo a,PageInfo b){return java.util.Objects.equals(a.name,b.name)&&Float.compare(a.pageWidth,b.pageWidth)==0&&Float.compare(a.pageHeight,b.pageHeight)==0&&Float.compare(a.leftGap,b.leftGap)==0&&Float.compare(a.rightGap,b.rightGap)==0&&Float.compare(a.topGap,b.topGap)==0&&Float.compare(a.bottomGap,b.bottomGap)==0&&a.lineNum==b.lineNum&&Float.compare(a.space,b.space)==0&&Float.compare(a.fontSize,b.fontSize)==0&&Arrays.equals(a.fontPath,b.fontPath)&&Arrays.equals(a.fontChance,b.fontChance);}
     public boolean isBusy(){return pending!=null||loading!=null||inlinePending!=null||layoutQueued;}
@@ -251,9 +607,27 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     public boolean randomCopies(){return randomCopies.isSelected();}
     public void setRandomCopies(boolean selected){randomCopies.setSelected(selected);}
     public void setDocument(NoteDocument d){submit(d.copy(),false,true);}
-    public void saveDocument(Path file) throws IOException{finishEditorComposition();if(pending!=null||loading!=null)throw new IOException("请等待文章读取完成后保存");if(hasUnappliedPageSettings())throw new IOException("页面版式尚未应用；请先点击“应用版式”。");document.save(file);documentFile=file;savedDocument=documentState=semanticState(document);editorSession.markSaved();selectionChanged();saveRecoveryAsync();message("文章已保存："+file.getFileName());}
-    public boolean saveDocumentCurrent(){if(pending!=null||loading!=null){message("请等待排版完成后保存。");return false;}try{if(documentFile==null)return saveDocumentDialog();saveDocument(documentFile);return true;}catch(Exception e){failure(e);return false;}}
-    private boolean saveDocumentDialog(){if(pending!=null||loading!=null)return false;if(hasUnappliedPageSettings()){message("页面或默认字体设置尚未应用；请先点击“应用版式”并等待排版完成。");return false;}try{File chosen=NoteFileDialogs.saveArticle(this,documentFile==null?null:documentFile.toFile());if(chosen!=null){saveDocument(chosen.toPath());return true;}}catch(Exception e){failure(e);}return false;}
+    public void saveDocument(Path file) throws IOException{finishEditorComposition();if(pending!=null||loading!=null)throw new IOException("请等待文章读取完成后保存");if(appearancePanel!=null&&appearancePanel.hasPending())throw new IOException("请等待字形与随机设置应用后保存");if(hasUnappliedPageSettings())throw new IOException("页面版式尚未应用；请先点击“应用版式”。");document.save(file);documentFile=file;savedDocument=document.encode();editorSession.markSaved();selectionChanged();saveRecoveryAsync();message("文章已保存："+file.getFileName());}
+    public String articleTitle(){return (documentFile==null?"未命名文章":documentFile.getFileName().toString())+(isDirty()?" *":"");}
+    private boolean prepareSave(){
+        finishEditorComposition();
+        if(isBusy()||(appearancePanel!=null&&appearancePanel.hasPending())){message("请等待排版完成后保存。");return false;}
+        if(!hasUnappliedPageSettings())return true;
+        Object[] choices={"应用并保存","取消"};
+        int answer=JOptionPane.showOptionDialog(this,"版式参数已修改但尚未应用，是否应用后保存？","保存文章",JOptionPane.DEFAULT_OPTION,JOptionPane.QUESTION_MESSAGE,null,choices,choices[0]);
+        if(answer!=0)return false;
+        applyLayoutAsync();
+        if(hasUnappliedPageSettings())return false;
+        if(isBusy()){
+            SecondaryLoop loop=Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
+            javax.swing.Timer ready=new javax.swing.Timer(25,e->{if(!isBusy())loop.exit();});
+            ready.start();try{loop.enter();}finally{ready.stop();}
+        }
+        if(inlineError!=null){message("版式应用失败，文章尚未保存："+inlineError);return false;}
+        return !hasUnappliedPageSettings();
+    }
+    public boolean saveDocumentCurrent(){try{if(documentFile==null)return saveDocumentDialog();if(!prepareSave())return false;saveDocument(documentFile);return true;}catch(Exception e){failure(e);return false;}}
+    private boolean saveDocumentDialog(){if(!prepareSave())return false;try{File chosen=NoteFileDialogs.saveArticle(this,documentFile==null?null:documentFile.toFile());if(chosen!=null){saveDocument(chosen.toPath());return true;}}catch(Exception e){failure(e);}return false;}
     private void openDocumentDialog(){if(isBusy())return;try{openDocument(NoteFileDialogs.openArticle(this,documentFile==null?null:documentFile.toFile()));}catch(Exception e){failure(e);}}
     public boolean openDocument(File file){return openDocument(file,null,null);}
     public boolean openDocument(File file,Runnable onSuccess){return openDocument(file,onSuccess,null);}
@@ -265,7 +639,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         final boolean nativeArticle=name.endsWith(".kjnote");
         if(!nativeArticle&&!name.endsWith(".txt")&&!name.endsWith(".doc")&&!name.endsWith(".docx")){failure(new IOException("请选择 KJNOTE、TXT、DOC 或 DOCX 文章"));return false;}
         final PageInfo importedPage=copyPage(pageInfo);
-        final WordContentFormat importedFormat=new Gson().fromJson(new Gson().toJson(document.format),WordContentFormat.class);
+        final WordContentFormat importedFormat=NoteDocument.copyFormat(document.format);
         final JDialog progress=new JDialog(SwingUtilities.getWindowAncestor(this),"正在读取文章",Dialog.ModalityType.MODELESS);
         JButton cancel=new JButton("取消读取");
         progress.setLayout(new BorderLayout(8,8));progress.add(new JLabel("正在校验并读取 "+f.getName()+"…"),BorderLayout.CENTER);progress.add(cancel,BorderLayout.SOUTH);
@@ -300,11 +674,24 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         progress.addWindowListener(new WindowAdapter(){public void windowClosed(WindowEvent e){stopReading.run();}});
         selectionChanged();loading.execute();progress.setVisible(true);return true;
     }
-    private void chooseSelectionFont(){if(isBusy()||selection.ids().isEmpty())return;if(catalogue==null){message("字库仍在载入，请稍候。");return;}final long revision=request;final Set<Long> captured=selection.capture();
-        NoteFontDialog dialog=new NoteFontDialog(SwingUtilities.getWindowAncestor(this),catalogue,document,captured);
-        NoteFonts.Entry chosen=dialog.choose();if(chosen==null)return;if(revision!=request){message("文章已变化，请重新选择要修改的字。");return;}
-        NoteDocument candidate=document.copy();SwingWorker<Prepared,Void> worker;
-        try {NoteDocument.FontRef ref=catalogue.ref(chosen);for(NoteDocument.Atom a:candidate.atoms)if(captured.contains(a.id))a.override=ref;submit(candidate,true,false);}catch(Exception e){failure(e);}
+    private void chooseSelectionFont(){
+        finishEditorComposition();
+        if(isBusy()||selection.ids().isEmpty())return;
+        if(catalogue==null){message("字库仍在载入，请稍候。");return;}
+        NoteEditSession.Transaction transaction=editorSession.capture();
+        Set<Long> captured=selection.capture();NoteDocument candidate=transaction.document();
+        NoteFontDialog dialog=new NoteFontDialog(SwingUtilities.getWindowAncestor(this),catalogue,candidate,captured);
+        NoteFonts.Entry chosen=dialog.choose();if(chosen==null)return;
+        if(transaction.revision()!=editorSession.revision()){
+            message("文章已变化，请重新选择要修改的字。");return;
+        }
+        try{
+            NoteDocument.FontRef ref=catalogue.ref(chosen);
+            for(NoteDocument.Atom atom:candidate.atoms)if(captured.contains(atom.id))atom.override=ref;
+            if(editorSession.commit(transaction,candidate,NoteEditSession.Kind.FONT)){
+                changed();if(notePanel!=null)notePanel.syncEditor();
+            }
+        }catch(Exception error){failure(error);}
     }
     private void editContent(){if(isBusy()){message("请等待当前文章修改完成。");return;}final NoteDocument draft=document.copy();JDialog dialog=new JDialog(SwingUtilities.getWindowAncestor(this),"编辑文章",Dialog.ModalityType.APPLICATION_MODAL);dialog.setSize(760,560);
         JTextArea text=new JTextArea(draft.text);text.setLineWrap(true);text.setWrapStyleWord(true);text.setName("NoteArticleText");JLabel feedback=new JLabel();
@@ -313,10 +700,11 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
             public void remove(FilterBypass b,int o,int n)throws BadLocationException{replace(b,o,n,"",null);}
             public void replace(FilterBypass b,int o,int n,String s,AttributeSet a)throws BadLocationException{String value=NoteDocument.normalize(s==null?"":s);try{draft.replace(o,n,value);b.replace(o,n,value,a);feedback.setText("");}catch(IllegalArgumentException tooLong){feedback.setText("文章最多 10 万字，请缩短后再粘贴。");java.awt.Toolkit.getDefaultToolkit().beep();}}
         });
-        JPanel bar=new JPanel();JCheckBox paragraphs=new JCheckBox("自动段落缩进",draft.format.autoGp);JSpinner indent=new JSpinner(new SpinnerNumberModel(draft.format.gpNum,1,5,1));JComboBox<LineAlign> align=new JComboBox<LineAlign>(LineAlign.values());align.setSelectedItem(draft.format.firstLineAlign);bar.add(paragraphs);bar.add(indent);bar.add(align);
-        JComboBox<String> charset=new JComboBox<String>(new String[]{"UTF-8","GBK"});charset.setSelectedItem(draft.format.charset);bar.add(charset);
+        JPanel bar=new JPanel(new GridLayout(0,1,0,4)),formatRow=new JPanel(new FlowLayout(FlowLayout.LEADING,6,2)),importRow=new JPanel(new FlowLayout(FlowLayout.LEADING,6,2));bar.add(formatRow);bar.add(importRow);
+        JCheckBox paragraphs=new JCheckBox("自动段落缩进",draft.format.autoGp);JSpinner indent=new JSpinner(new SpinnerNumberModel(draft.format.gpNum,1,5,1));JComboBox<LineAlign> align=new JComboBox<LineAlign>(LineAlign.values());align.setSelectedItem(draft.format.firstLineAlign);formatRow.add(paragraphs);formatRow.add(new JLabel("首行缩进格数"));formatRow.add(indent);formatRow.add(new JLabel("对齐"));formatRow.add(align);
+        JComboBox<String> charset=new JComboBox<String>(new String[]{"UTF-8","GBK"});charset.setSelectedItem(draft.format.charset);importRow.add(new JLabel("TXT 编码"));importRow.add(charset);
         JButton ok=new JButton("确定文章"),cancel=new JButton("取消");ok.setName("NoteConfirmContent");
-        JButton importText=new JButton("导入 TXT / Word…");importText.setName("NoteImportText");bar.add(importText);
+        JButton importText=new JButton("导入 TXT / Word…");importText.setName("NoteImportText");importRow.add(importText);
         final java.util.concurrent.atomic.AtomicReference<SwingWorker<String,Void>> importing=new java.util.concurrent.atomic.AtomicReference<SwingWorker<String,Void>>();
         importText.addActionListener(ev->{
             try{
@@ -365,11 +753,11 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
             }
         }
     }
-    public boolean onNoteContentSet(StringBuffer text,WordContentFormat format){if(!SwingUtilities.isEventDispatchThread()||isBusy())return false;NoteDocument d=document.copy();d.replace(0,d.text.length(),text.toString());d.format=new Gson().fromJson(new Gson().toJson(format),WordContentFormat.class);final boolean[] committed={false};SecondaryLoop loop=Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();SwingWorker<Prepared,Void> work=submit(d,true,false,()->committed[0]=true);if(work==null)return false;work.addPropertyChangeListener(e->{if(e.getNewValue()==SwingWorker.StateValue.DONE)loop.exit();});loop.enter();return committed[0];}
+    public boolean onNoteContentSet(StringBuffer text,WordContentFormat format){if(!SwingUtilities.isEventDispatchThread()||isBusy())return false;NoteDocument d=document.copy();d.replace(0,d.text.length(),text.toString());d.format=NoteDocument.copyFormat(format);final boolean[] committed={false};SecondaryLoop loop=Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();SwingWorker<Prepared,Void> work=submit(d,true,false,()->committed[0]=true);if(work==null)return false;work.addPropertyChangeListener(e->{if(e.getNewValue()==SwingWorker.StateValue.DONE)loop.exit();});loop.enter();return committed[0];}
     public void actionPerformed(ActionEvent ev){Object source=ev.getSource();if(source==btnSave)save();else if(source==btnDelete)delete();else if(source==btnChooseFont)r.a(chooseFontListener).a();else if(source==btnSetContent)editContent();else if(source==btnPrePage){curPage--;changePage();if(notePanel!=null)notePanel.scrollToPage(curPage);}else if(source==btnNextPage){curPage++;changePage();if(notePanel!=null)notePanel.scrollToPage(curPage);}else if(source==tfCurPage){try{curPage=(int)value(tfCurPage)-1;changePage();if(notePanel!=null)notePanel.scrollToPage(curPage);}catch(Exception e){failure(e);}}else if(source==cbSettings&&!binding&&cbSettings.getSelectedItem() instanceof PageInfo)setPageInfo((PageInfo)cbSettings.getSelectedItem());}
     public Component createCanvas(){captureView();notePanel=new g();notePanel.attachEditor(this);changePage();notePanel.setEditing(editToggle.isSelected());if(viewCaptured){notePanel.a(viewAngle);notePanel.setDisplayScale(viewScale);pendingViewRestore=true;SwingUtilities.invokeLater(this::restoreView);}return notePanel;}
     public void onActive(){sidebar=NoteSidebarView.attach(this);changePage();}
-    public void onDeactive(){finishEditorComposition();captureView();saveRecoveryAsync();if(sidebar!=null){sidebar.detach();sidebar=null;}/* Submitted edits still belong to this tab. */}
+    public void onDeactive(){finishEditorComposition();captureView();saveRecoveryAsync();if(forbiddenZoneManager!=null&&forbiddenZoneManager.isDisplayable())forbiddenZoneManager.close();if(sidebar!=null){sidebar.detach();sidebar=null;}/* Submitted edits still belong to this tab. */}
     public String toString(){return "笔记";}
     public ImageIcon getIcon(){return new ImageIcon(L.b("note.png"));}
     public void setScale(float scale){}
@@ -379,16 +767,18 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     public byte[] getExportData(){return document.encode().getBytes(StandardCharsets.UTF_8);}
     public int getPageNum(){return exportLayout().pages.size();}
     public int getCurrentPageIndex(){return curPage;}
+    public JComponent pageNavigation(){return pageNavigation;}
     public String currentPageSource(){return "笔记当前页 "+(layout.pages.isEmpty()?0:curPage+1)+"/"+layout.pages.size();}
     public boolean beginMachineJob(){if(!isOutputReady()||layout.pages.isEmpty()||layout.pages.get(curPage).paths.isEmpty())return false;com.kenjoy.kenjoycnc.c.a generator=getGcodeGenerator();if(generator==null)return false;machineJobSource=currentPageSource();machineJobGenerator=generator;return true;}
     public void endMachineJob(){machineJobGenerator=null;machineJobSource=null;}
     public String machineJobSource(){return machineJobSource;}
     public NoteLayout exportLayout(){NoteExportHooks.Job job=NoteExportHooks.current(this);return job==null?layout:job.layout;}
-    public com.kenjoy.kenjoycnc.c.a getGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generator(job.pageIndex);if(machineJobGenerator!=null)return machineJobGenerator;if(layout.pages.isEmpty()||!isOutputReady())return null;return new com.kenjoy.kenjoycnc.c.c(notePanel.a(L.b(layout.pages.get(curPage).paths)),Settings.getInst().nearDst,false);}
-    public List getExportGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generators();List result=new ArrayList();if(!isOutputReady())throw new IllegalStateException(outputReadinessMessage());for(NoteLayout.Page p:layout.pages)result.add(new com.kenjoy.kenjoycnc.c.c(notePanel.a(L.b(p.paths)),Settings.getInst().nearDst,false));return result;}
+    public com.kenjoy.kenjoycnc.c.a getGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generator(job.pageIndex);if(machineJobGenerator!=null)return machineJobGenerator;if(layout.pages.isEmpty()||!isOutputReady())return null;java.awt.geom.AffineTransform transform=machineTransform();List converted=validatedMachinePaths(curPage,layout.pages.get(curPage),document,Settings.getInst().dpi,transform);return new com.kenjoy.kenjoycnc.c.c(L.b(converted),Settings.getInst().nearDst,false);}
+    public List getExportGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generators();List result=new ArrayList();if(!isOutputReady())throw new IllegalStateException(outputReadinessMessage());java.awt.geom.AffineTransform transform=machineTransform();for(int index=0;index<layout.pages.size();index++){List converted=validatedMachinePaths(index,layout.pages.get(index),document,Settings.getInst().dpi,transform);result.add(new com.kenjoy.kenjoycnc.c.c(L.b(converted),Settings.getInst().nearDst,false));}return result;}
     public BufferedImage renderToImage(int page){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job==null&&!isOutputReady())throw new IllegalStateException(outputReadinessMessage());NoteLayout l=job==null?layout:job.layout;NoteDocument d=job==null?document:job.document;return image(l,d,page,job==null?Settings.getInst().dpi:job.dpi);}
     public static BufferedImage image(NoteLayout layout,NoteDocument d,int index,float dpi){if(index<0||index>=layout.pages.size())throw new IllegalArgumentException("页码不存在");double width=d.page.pageWidth*(double)dpi/25.4,height=d.page.pageHeight*(double)dpi/25.4;if(!Double.isFinite(width)||!Double.isFinite(height)||width<1||height<1||width>12000||height>12000||width*height>24_000_000)throw new IllegalArgumentException("导出页面尺寸过大（最多 2400 万像素）");int w=(int)Math.round(width),h=(int)Math.round(height);BufferedImage img=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);Graphics2D out=img.createGraphics();out.setColor(Color.WHITE);out.fillRect(0,0,w,h);out.setColor(Color.BLACK);out.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);out.draw(NoteLayout.path(layout.pages.get(index).paths));out.dispose();return img;}
     public List machinePaths(NoteLayout.Page page){return notePanel.a(L.b(page.paths));}
+    private List validatedMachinePaths(int pageIndex,NoteLayout.Page page,NoteDocument source,float dpi,java.awt.geom.AffineTransform transform){List converted=machinePaths(page);NoteForbiddenZoneGeometry.validatePagePaths(source,pageIndex,dpi,transform,converted);return converted;}
     public java.awt.geom.AffineTransform machineTransform(){com.kenjoy.kenjoycnc.g.e basis=new com.kenjoy.kenjoycnc.g.e();basis.a(0,0);basis.b(1024,0);basis.b(0,1024);List result=notePanel.a(Collections.singletonList(basis));float[] xy=((com.kenjoy.kenjoycnc.g.e)result.get(0)).a();return new java.awt.geom.AffineTransform((xy[2]-xy[0])/1024,(xy[3]-xy[1])/1024,(xy[4]-xy[0])/1024,(xy[5]-xy[1])/1024,xy[0],xy[1]);}
 
     public NoteEditSession session(){return editorSession;}
@@ -403,7 +793,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     }
     public void changed(){
         if(pending!=null){++request;pending.cancel(true);pending=null;}
-        document=editorSession.mutableDocument();content=new StringBuffer(document.text);contentSet=document.format;documentState="";inlineError=null;
+        document=editorSession.mutableDocument();content=new StringBuffer(document.text);contentSet=document.format;inlineError=null;
         layoutQueued=true;refreshEditGeometry();if(notePanel!=null)notePanel.refreshEditor();layoutTimer.restart();recoveryTimer.restart();selectionChanged();
     }
     public void selectionChanged(){
@@ -421,7 +811,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     public void history(boolean forward){editorHistory(forward);}
     private void editorHistory(boolean forward){
         finishEditorComposition();String[] inputFonts=editorSession.inputFonts();int[] inputChances=editorSession.inputChances();boolean changed=forward?editorSession.redo():editorSession.undo();if(!changed)return;
-        changed();documentState=semanticState(document);if(notePanel!=null)notePanel.syncEditor();setPageInfo(document.page);pageInfo.fontPath=inputFonts;pageInfo.fontChance=inputChances;captureInputFonts();
+        changed();if(notePanel!=null)notePanel.syncEditor();refreshForbiddenZoneList();setPageInfo(document.page);pageInfo.fontPath=inputFonts;pageInfo.fontChance=inputChances;captureInputFonts();
     }
     private void setEditing(boolean active){
         boolean previous=notePanel!=null&&notePanel.isEditing();
@@ -442,7 +832,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
             }
             protected void done(){
                 try{Prepared result=get();boolean followCaret=notePanel!=null&&notePanel.isEditing()&&curPage==caretPage();if(editorSession.adoptLayout(result.document,revision)){
-                    document=editorSession.mutableDocument();layout=result.layout;layoutRevision=revision;inlineError=null;lastFailure=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);documentState=semanticState(document);
+                    document=editorSession.mutableDocument();layout=result.layout;layoutRevision=revision;inlineError=null;lastFailure=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);
                     content=new StringBuffer(document.text);pageDatas.clear();for(NoteLayout.Page p:layout.pages)pageDatas.add(new com.kenjoy.kenjoycnc.l.f(0,p.paths,Collections.emptyList()));
                     curPage=followCaret?Math.min(caretPage(),Math.max(0,layout.pages.size()-1)):Math.max(0,Math.min(curPage,layout.pages.size()-1));changePage();message("笔迹已更新。"+(isDirty()?"文章有未保存修改。":""));
                 }}catch(Exception e){if(revision==editorSession.revision()){Throwable cause=e;while(cause.getCause()!=null)cause=cause.getCause();inlineError=cause.getMessage()==null?cause.toString():cause.getMessage();lastFailure=inlineError;message("正文已保留，笔迹尚未完成："+inlineError);}}
@@ -450,7 +840,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
             }
         };inlinePending.execute();selectionChanged();
     }
-    public boolean isOutputReady(){return !isBusy()&&inlineError==null&&layoutRevision==editorSession.revision()&&layout.missing.isEmpty()&&!hasUnappliedPageSettings();}
+    public boolean isOutputReady(){return !isBusy()&&(appearancePanel==null||!appearancePanel.hasPending())&&inlineError==null&&layoutRevision==editorSession.revision()&&layout.missing.isEmpty()&&!hasUnappliedPageSettings();}
     public String outputReadinessMessage(){if(!layout.missing.isEmpty())return "文章仍有缺字红框，请修复后再导出或开始书写。";if(inlineError!=null)return "笔迹尚未生成："+inlineError;if(hasUnappliedPageSettings())return "请先应用页面版式。";return "请等待当前正文的笔迹生成完成。";}
     public String editSourceIdentity(){return documentId+":"+editorSession.contentIdentity()+":"+curPage+":"+(notePanel==null?0:notePanel.processingAngle());}
     public void showEditorSettings(){
@@ -461,15 +851,25 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     }
     private SwingWorker<Void,Void> recoveryWorker;
     private boolean editorClosing;
+    private JViewport canvasViewport(){
+        if(notePanel==null)return null;
+        Container viewport=SwingUtilities.getAncestorOfClass(JViewport.class,notePanel);
+        return viewport instanceof JViewport?(JViewport)viewport:null;
+    }
     private void captureView(){
         if(notePanel==null)return;viewAngle=notePanel.processingAngle();viewScale=notePanel.displayScale();viewCaptured=true;
-        if(!pendingViewRestore&&notePanel.getParent() instanceof JViewport)viewPosition=((JViewport)notePanel.getParent()).getViewPosition();
+        JViewport viewport=canvasViewport();
+        if(!pendingViewRestore&&viewport!=null)viewPosition=viewport.getViewPosition();
     }
     private void restoreView(){
-        if(!pendingViewRestore||notePanel==null||isBusy()||!(notePanel.getParent() instanceof JViewport))return;
-        JViewport viewport=(JViewport)notePanel.getParent();Dimension extent=viewport.getExtentSize(),size=notePanel.getPreferredSize();
+        if(!pendingViewRestore||notePanel==null||isBusy())return;
+        JViewport viewport=canvasViewport();if(viewport==null)return;
+        Component view=viewport.getView();if(view==null)return;
+        Dimension extent=viewport.getExtentSize(),preferred=view.getPreferredSize();
         if(extent.width<=0||extent.height<=0)return;
-        viewport.setViewSize(size);viewport.setViewPosition(new Point(Math.max(0,Math.min(viewPosition.x,size.width-extent.width)),Math.max(0,Math.min(viewPosition.y,size.height-extent.height))));
+        Dimension size=view==notePanel?preferred:new Dimension(Math.max(extent.width,preferred.width),Math.max(extent.height,preferred.height));
+        viewport.setViewSize(size);if(view instanceof Container)((Container)view).doLayout();
+        viewport.setViewPosition(new Point(Math.max(0,Math.min(viewPosition.x,size.width-extent.width)),Math.max(0,Math.min(viewPosition.y,size.height-extent.height))));
         viewPosition=viewport.getViewPosition();pendingViewRestore=false;
     }
     private boolean awaitingInitialRecovery(){return recoveryRestoring&&editorSession.revision()==recoveryStartRevision;}
@@ -485,7 +885,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         final long restoreRevision=editorSession.revision(),restoreRequest=request;
         new SwingWorker<NoteRecovery.Snapshot,Void>(){protected NoteRecovery.Snapshot doInBackground()throws Exception{return NoteRecovery.load();}protected void done(){try{
             NoteRecovery.Snapshot value=get();if(editorClosing||value==null||!document.text.isEmpty()||editorSession.revision()!=restoreRevision||request!=restoreRequest||pending!=null||loading!=null)return;documentId=value.documentId;
-            editorSession.reset(value.document);document=editorSession.mutableDocument();editorSession.setSelection(value.anchor,value.dot);documentFile=value.file==null?null:Paths.get(value.file);savedDocument=value.savedState==null?"":value.savedState;documentState=semanticState(document);if(value.dirty)editorSession.markUnsaved();else editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();curPage=value.page;changed();
+            editorSession.reset(value.document);document=editorSession.mutableDocument();editorSession.setSelection(value.anchor,value.dot);documentFile=value.file==null?null:Paths.get(value.file);savedDocument=value.savedState==null?"":value.savedState;if(value.dirty)editorSession.markUnsaved();else editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();curPage=value.page;changed();
             viewAngle=value.processingAngle;viewPosition=new Point(value.scrollX,value.scrollY);viewCaptured=true;pendingViewRestore=true;
             if(notePanel!=null){notePanel.a(viewAngle);viewScale=notePanel.displayScale();notePanel.syncEditor();}setEditing(value.editing);
             SwingUtilities.invokeLater(NoteTab.this::restoreView);message("已恢复上次编辑的文章。");
@@ -495,6 +895,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     public void activatePreviewPage(int page){curPage=Math.max(0,Math.min(page,Math.max(0,geometry().layout.pages.size()-1)));changePage();}
     public boolean prepareEditorClose(){
         finishEditorComposition();try{
+            if(appearancePanel!=null&&appearancePanel.hasPending()){message("请等待字形与随机设置应用完成后关闭。");return false;}
             if(awaitingInitialRecovery()){editorClosing=true;recoveryTimer.stop();return true;}
             if(NoteRecovery.closePolicy()==NoteRecovery.ClosePolicy.ASK_SAVE&&isDirty()){
                 int answer=JOptionPane.showConfirmDialog(this,"文章有未保存修改，是否保存？","关闭文章",JOptionPane.YES_NO_CANCEL_OPTION);

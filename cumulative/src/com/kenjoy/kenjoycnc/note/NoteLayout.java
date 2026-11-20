@@ -42,6 +42,10 @@ public final class NoteLayout {
         public final String text;
         public final int line;
         public final Rectangle2D.Float cell;
+        /** Caret/selection cell follows the advance; the visible ink may be independently transformed. */
+        public final Rectangle2D.Float caretCell;
+        /** Complete transformed ink bounds, including bearings, rotation and per-glyph translation. */
+        public Rectangle2D.Float inkBounds=new Rectangle2D.Float();
         public final e path;
         public final NoteDocument.FontRef font;
         public int start,end;
@@ -49,7 +53,7 @@ public final class NoteLayout {
         public boolean pending,missing,whitespace,replacementMarked;
         /** Cache key for a sampled glyph; never a source position. */
         public String shapeKey="";
-        public Glyph(long id,String text,int line,Rectangle2D.Float cell,e path,NoteDocument.FontRef font) {this.id=id;this.text=text;this.line=line;this.cell=cell;this.path=path;this.font=font;}
+        public Glyph(long id,String text,int line,Rectangle2D.Float cell,e path,NoteDocument.FontRef font) {this.id=id;this.text=text;this.line=line;this.cell=cell;this.caretCell=cell;this.path=path;this.font=font;}
     }
     public static Set<Long> box(Page page,Rectangle2D box) {
         Set<Long> ids=new LinkedHashSet<Long>();for(Glyph g:page.glyphs)if(box.intersects(g.cell))ids.add(g.id);return ids;

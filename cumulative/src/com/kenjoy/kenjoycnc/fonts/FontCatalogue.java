@@ -17,7 +17,14 @@ public final class FontCatalogue {
         Entry(Path p,long s,long m,v f){path=p;size=s;modified=m;header=f;}
         public boolean unchanged(){try{return Files.size(path)==size&&Files.getLastModifiedTime(path).toMillis()==modified;}catch(IOException e){return false;}}
         public v preview(){return preview;}
-        public synchronized void preview(Runnable ready){if(previewRequested)return;previewRequested=true;WORK.execute(()->{long n=System.nanoTime();v f=new v();try(InputStream in=Files.newInputStream(path)){if(!unchanged())throw new IOException("文件已变化，请刷新");f.b(in);f.f=header.f;if(f.d()!=null)f.d().a();if(!unchanged())throw new IOException("文件已变化，请刷新");preview=f;}catch(Exception e){f.f();previewError=e.getMessage();}finally{if(Boolean.getBoolean("kvenjoy.font.timings"))System.out.println("FONT_PREVIEW ns="+(System.nanoTime()-n));javax.swing.SwingUtilities.invokeLater(ready);}});}
+        public synchronized void preview(Runnable ready){
+            if(previewRequested)return;previewRequested=true;previewError=null;
+            try{WORK.execute(()->{long n=System.nanoTime();v f=new v();
+                try(InputStream in=Files.newInputStream(path)){if(!unchanged())throw new IOException("文件已变化，请刷新");f.b(in);f.f=header.f;if(f.d()!=null)f.d().a();if(!unchanged())throw new IOException("文件已变化，请刷新");preview=f;}
+                catch(Throwable failure){try{f.f();}finally{previewError=describe(failure);}if(failure instanceof Error)throw (Error)failure;}
+                finally{if(Boolean.getBoolean("kvenjoy.font.timings"))System.out.println("FONT_PREVIEW ns="+(System.nanoTime()-n));javax.swing.SwingUtilities.invokeLater(ready);}
+            });}catch(RuntimeException rejected){previewError=describe(rejected);javax.swing.SwingUtilities.invokeLater(ready);}
+        }
     }
     public static final class Snapshot {
         public final List<Entry> entries;public final List<String> errors;public final long scanNanos,parseNanos;public final int reused;
@@ -26,13 +33,21 @@ public final class FontCatalogue {
     private final Path root;private volatile Snapshot current;private CompletableFuture<Snapshot> pending;
     private FontCatalogue(Path root){this.root=root;}
     public Snapshot current(){return current;}
-    public synchronized CompletableFuture<Snapshot> refresh(){if(pending!=null)return pending;CompletableFuture<Snapshot> result=new CompletableFuture<>();pending=result;WORK.execute(()->{try{Snapshot next=scan();synchronized(this){current=next;if(pending==result)pending=null;}result.complete(next);}catch(Exception e){synchronized(this){if(pending==result)pending=null;}result.completeExceptionally(e);}});return result;}
+    public synchronized CompletableFuture<Snapshot> refresh(){
+        if(pending!=null)return pending;CompletableFuture<Snapshot> result=new CompletableFuture<>();pending=result;
+        try{WORK.execute(()->{
+            try{Snapshot next=scan();synchronized(this){current=next;if(pending==result)pending=null;}result.complete(next);}
+            catch(Throwable failure){synchronized(this){if(pending==result)pending=null;}result.completeExceptionally(failure);if(failure instanceof Error)throw (Error)failure;}
+        });}catch(RuntimeException rejected){if(pending==result)pending=null;result.completeExceptionally(rejected);}
+        return result;
+    }
+    private static String describe(Throwable failure){String message=failure.getMessage();return failure.getClass().getSimpleName()+(message==null?"":": "+message);}
     private Snapshot scan()throws Exception{
         long n=System.nanoTime();List<Path> paths=new ArrayList<>();try(java.util.stream.Stream<Path>s=Files.walk(root)){s.filter(p->Files.isRegularFile(p)&&p.toString().toLowerCase(Locale.ROOT).endsWith(".gfont")).sorted().forEach(paths::add);}long scan=System.nanoTime()-n;n=System.nanoTime();
         Map<Path,Entry> prior=new HashMap<>();if(current!=null)for(Entry e:current.entries)prior.put(e.path,e);
         List<Entry> next=new ArrayList<>();List<String> errors=new ArrayList<>();int reused=0;
-        for(Path p:paths){Entry old=prior.get(p);if(old!=null&&old.unchanged()){next.add(old);reused++;continue;}
-            v f=new v();try{long size=Files.size(p),mtime=Files.getLastModifiedTime(p).toMillis();try(InputStream in=Files.newInputStream(p)){f.a(in);}f.f=p.getFileName().toString();Entry e=new Entry(p,size,mtime,f);if(!e.unchanged())throw new IOException("扫描时文件发生变化");if(L.a(f))next.add(e);}catch(Exception e){f.f();errors.add(root.relativize(p)+": "+e.getClass().getSimpleName());}}
+        for(Path p:paths){Entry old=prior.get(p);if(old!=null&&old.previewError==null&&old.unchanged()){next.add(old);reused++;continue;}
+            v f=new v();try{long size=Files.size(p),mtime=Files.getLastModifiedTime(p).toMillis();try(InputStream in=Files.newInputStream(p)){f.a(in);}f.f=p.getFileName().toString();Entry e=new Entry(p,size,mtime,f);if(!e.unchanged())throw new IOException("扫描时文件发生变化");if(L.a(f))next.add(e);}catch(Exception e){f.f();errors.add(root.relativize(p)+": "+describe(e));}}
         return new Snapshot(next,errors,scan,System.nanoTime()-n,reused);
     }
 }

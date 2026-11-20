@@ -28,6 +28,9 @@ public final class g extends Re_h {
     private NoteTextEditor editor;
     private NoteTab owner;
     private boolean editing;
+    private boolean forbiddenZoneDrawing;
+    private boolean forbiddenZoneGesture;
+    private int forbiddenZonePage=-1;
     public void attachEditor(NoteTab tab){
         owner=tab;editor=new NoteTextEditor(tab);editor.setVisible(false);add(editor);
         editor.addMouseWheelListener(ev->{MouseWheelEvent forwarded=new MouseWheelEvent(this,ev.getID(),ev.getWhen(),ev.getModifiersEx(),ev.getX(),ev.getY(),ev.getClickCount(),ev.isPopupTrigger(),ev.getScrollType(),ev.getScrollAmount(),ev.getWheelRotation());dispatchEvent(forwarded);ev.consume();});
@@ -37,9 +40,10 @@ public final class g extends Re_h {
     public NoteTextEditor textEditor(){return editor;}
     public boolean isEditing(){return editing;}
     public void setEditing(boolean active){
-        if(editor==null)return;if(!active)editor.finishComposition();editing=active;editor.setVisible(active);
+        if(editor==null)return;if(!active)editor.finishComposition();if(active)setForbiddenZoneDrawing(false);editing=active;editor.setVisible(active);
         editor.syncFromSession();refreshEditor();if(active)SwingUtilities.invokeLater(()->editor.requestFocusInWindow());else requestFocusInWindow();
     }
+    public void setForbiddenZoneDrawing(boolean active){forbiddenZoneDrawing=active;forbiddenZoneGesture=false;forbiddenZonePage=-1;pressed=null;current=null;dragged=false;repaint();}
     public void refreshEditor(){if(editor!=null){Dimension d=getPreferredSize();if(editing)editor.setBounds(0,0,d.width,d.height);firePropertyChange("preferredSize",null,d);firePropertyChange("note.documentView",0,System.nanoTime());revalidate();repaint();}}
     public void syncEditor(){if(editor!=null){editor.syncFromSession();refreshEditor();}}
     public boolean isContinuousView(){return owner!=null;}
@@ -48,7 +52,7 @@ public final class g extends Re_h {
     public void setDisplayScale(float scale){a=Math.max(.1f,Math.min(8f,scale));super.a(g);refreshEditor();}
     public void a(float angle){super.a(angle);refreshEditor();}
     public Dimension getPreferredSize(){if(owner!=null&&owner.geometry()!=null){NoteEditGeometry geo=owner.geometry();Rectangle2D paper=rotatedPaper();float height=(float)paper.getHeight()*geo.layout.pages.size()+geo.pageGap*Math.max(0,geo.layout.pages.size()-1);return new Dimension(Math.max(1,Math.round((float)paper.getWidth()*a)+80),Math.max(1,Math.round(height*a)+60));}return super.getPreferredSize();}
-    public void paint(Graphics raw){if(owner==null){super.paint(raw);return;}Graphics2D out=(Graphics2D)raw.create();try{out.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);out.setColor(NotePreviewColors.CANVAS);out.fillRect(0,0,getWidth(),getHeight());if(editing&&editor!=null)editor.paint(out);else paintPreview(out);}finally{out.dispose();}}
+    public void paint(Graphics raw){if(owner==null){super.paint(raw);return;}Graphics2D out=(Graphics2D)raw.create();try{out.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);out.setColor(NotePreviewColors.CANVAS);out.fillRect(0,0,getWidth(),getHeight());if(editing&&editor!=null){editor.paint(out);paintAllForbiddenZones(out);}else paintPreview(out);}finally{out.dispose();}}
     public void scrollToPage(int index){if(owner!=null){Rectangle r=previewPageBounds(index).getBounds();r.height=Math.max(1,Math.min(Math.max(1,getVisibleRect().height),r.height));scrollRectToVisible(r);}}
     public float processingAngle(){return g;}
     private Rectangle2D rotatedPaper(){NoteLayout layout=owner.geometry().layout;Rectangle2D paper=new Rectangle2D.Float(0,0,layout.pageWidth,layout.pageHeight);return AffineTransform.getRotateInstance(Math.toRadians(editing?0:g),layout.pageWidth/2,layout.pageHeight/2).createTransformedShape(paper).getBounds2D();}
@@ -66,13 +70,26 @@ public final class g extends Re_h {
         int index=Math.max(0,Math.min(geometry.layout.pages.size()-1,(int)Math.floor((point.y-30)/(a*(paper.getHeight()+geometry.pageGap)))));
         try{Point2D local=previewTransform(index).inverseTransform(point,null);return new PreviewHit(index,geometry.layout.pages.get(index),(float)local.getX(),(float)local.getY());}catch(NoninvertibleTransformException error){return null;}
     }
+    private String forbiddenZoneAt(PreviewHit hit){
+        if(hit==null)return null;NoteDocument document=owner.document();
+        if(document==null||document.page==null||document.forbiddenZones==null)return null;
+        float scale=owner.geometry().layout.pageWidth/document.page.pageWidth;
+        float x=hit.x/scale,y=hit.y/scale;
+        if(x<0||y<0||x>document.page.pageWidth||y>document.page.pageHeight)return null;
+        List<NoteForbiddenZones.ResolvedZone> zones=document.forbiddenZones.resolve(hit.index+1,document.page.pageWidth,document.page.pageHeight);
+        for(int index=zones.size()-1;index>=0;index--){NoteForbiddenZones.ResolvedZone zone=zones.get(index);
+            if(x>=zone.x&&x<=zone.x+zone.width&&y>=zone.y&&y<=zone.y+zone.height)return zone.id;
+        }
+        return null;
+    }
     private void paintPreview(Graphics2D out){
-        NoteEditGeometry geometry=owner.geometry();Rectangle clip=out.getClipBounds();
+        NoteEditGeometry geometry=owner.geometry();NoteDocument zoneDocument=owner.document();Rectangle clip=out.getClipBounds();
         for(int index=0;index<geometry.layout.pages.size();index++){
             Rectangle2D bounds=previewPageBounds(index);if(clip!=null&&!clip.intersects(bounds))continue;
             out.setColor(NotePreviewColors.SHADOW);out.fill(new Rectangle2D.Double(bounds.getX()+4,bounds.getY()+5,bounds.getWidth(),bounds.getHeight()));
             out.setColor(NotePreviewColors.PAPER);out.fill(bounds);out.setColor(index==owner.getCurrentPageIndex()?NotePreviewColors.ACCENT:NotePreviewColors.EDGE);out.draw(bounds);
             Graphics2D local=(Graphics2D)out.create();local.transform(previewTransform(index));NoteLayout.Page shown=geometry.layout.pages.get(index);
+            paintForbiddenZones(local,zoneDocument,index);
             local.setColor(NotePreviewColors.GUIDE);for(NoteLayout.Line line:shown.lines){local.draw(new Line2D.Float(line.bounds.x,line.bounds.y+line.bounds.height,line.bounds.x+line.bounds.width,line.bounds.y+line.bounds.height));}
             local.setColor(NotePreviewColors.MUTED);for(NoteLayout.Line line:shown.lines)local.drawString("›",line.bounds.x-18,line.bounds.y+line.bounds.height*.7f);
             for(NoteLayout.Glyph glyph:shown.glyphs){
@@ -86,7 +103,27 @@ public final class g extends Re_h {
             }
             local.dispose();out.setColor(NotePreviewColors.MUTED);out.drawString("第 "+(index+1)+" 页"+(index==owner.getCurrentPageIndex()?" · 当前书写页":""),40,(int)Math.round(bounds.getMaxY()+17));
         }
-        if(dragged&&pressed!=null&&current!=null){out.setColor(new Color(30,100,200));out.draw(screenBox(pressed,current));}
+        if(dragged&&pressed!=null&&current!=null){out.setColor(forbiddenZoneDrawing?new Color(205,55,55):new Color(30,100,200));out.draw(screenBox(pressed,current));}
+    }
+    private void paintAllForbiddenZones(Graphics2D out){
+        NoteDocument document=owner.document();NoteEditGeometry geometry=owner.geometry();
+        for(int index=0;index<geometry.layout.pages.size();index++){Graphics2D local=(Graphics2D)out.create();local.transform(previewTransform(index));paintForbiddenZones(local,document,index);local.dispose();}
+    }
+    private void paintForbiddenZones(Graphics2D local,NoteDocument document,int pageIndex){
+        if(document==null||document.forbiddenZones==null||document.page==null)return;
+        Stroke originalStroke=local.getStroke();
+        try{
+        float scale=owner.geometry().layout.pageWidth/document.page.pageWidth;
+        Rectangle2D selectedArea=null;String selectedId=owner.selectedForbiddenZoneId();
+        for(NoteForbiddenZones.ResolvedZone zone:document.forbiddenZones.resolve(pageIndex+1,document.page.pageWidth,document.page.pageHeight)){
+            Rectangle2D area=new Rectangle2D.Float(zone.x*scale,zone.y*scale,zone.width*scale,zone.height*scale);
+            Rectangle2D expanded=new Rectangle2D.Float((zone.x-zone.clearanceMm)*scale,(zone.y-zone.clearanceMm)*scale,(zone.width+zone.clearanceMm*2)*scale,(zone.height+zone.clearanceMm*2)*scale);
+            local.setColor(new Color(210,45,45,55));local.fill(area);local.setColor(new Color(180,35,35,190));local.setStroke(new BasicStroke(1.1f));local.draw(area);
+            if(zone.clearanceMm>0){local.setColor(new Color(180,35,35,135));local.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT,BasicStroke.JOIN_MITER,10f,new float[]{4f,3f},0f));local.draw(expanded);}
+            if(zone.id.equals(selectedId))selectedArea=area;
+        }
+        if(selectedArea!=null){local.setColor(new Color(255,205,65));local.setStroke(new BasicStroke(3f/Math.max(a,.1f)));local.draw(selectedArea);}
+        }finally{local.setStroke(originalStroke);}
     }
     private static Rectangle screenBox(Point a,Point b){return new Rectangle(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(a.x-b.x),Math.abs(a.y-b.y));}
 
@@ -138,14 +175,38 @@ public final class g extends Re_h {
     }
     private void notifySelection() {repaint();if(changed!=null)changed.run();}
     public void mousePressed(MouseEvent ev) {
-        if(ev.getButton()==MouseEvent.BUTTON1){if(owner!=null&&!editing){PreviewHit hit=previewHit(ev.getPoint());if(hit!=null&&previewPageBounds(hit.index).contains(ev.getPoint()))owner.activatePreviewPage(hit.index);}requestFocusInWindow();pressed=ev.getPoint();current=pressed;dragged=false;control=ev.isControlDown();return;}
+        if(ev.getButton()==MouseEvent.BUTTON1){
+            if((ev.getModifiersEx()&InputEvent.BUTTON2_DOWN_MASK)!=0)return;
+            forbiddenZoneGesture=false;
+            if(forbiddenZoneDrawing&&owner!=null&&!editing){PreviewHit hit=previewHit(ev.getPoint());if(hit==null||!previewPageBounds(hit.index).contains(ev.getPoint()))return;forbiddenZonePage=hit.index;owner.activatePreviewPage(hit.index);requestFocusInWindow();pressed=ev.getPoint();current=pressed;dragged=false;control=false;return;}
+            if(owner!=null&&!editing){
+                PreviewHit hit=previewHit(ev.getPoint());String id=forbiddenZoneAt(hit);
+                if(id!=null){forbiddenZoneGesture=true;pressed=null;current=null;dragged=false;requestFocusInWindow();owner.selectForbiddenZoneFromCanvas(hit.index,id);repaint();if(ev.getClickCount()==2)owner.editForbiddenZoneFromCanvas(hit.index,id);return;}
+                owner.selectForbiddenZoneFromCanvas(hit==null?owner.getCurrentPageIndex():hit.index,null);repaint();
+            }
+            if(owner!=null&&!editing){PreviewHit hit=previewHit(ev.getPoint());if(hit!=null&&previewPageBounds(hit.index).contains(ev.getPoint()))owner.activatePreviewPage(hit.index);}requestFocusInWindow();pressed=ev.getPoint();current=pressed;dragged=false;control=ev.isControlDown();return;
+        }
+        if(ev.getButton()==MouseEvent.BUTTON2){forbiddenZoneGesture=false;pressed=null;current=null;dragged=false;}
         super.mousePressed(ev);
         if(ev.isPopupTrigger()||ev.getButton()==MouseEvent.BUTTON3)popup(ev);
     }
     public void mouseDragged(MouseEvent ev) {
+        if((ev.getModifiersEx()&InputEvent.BUTTON2_DOWN_MASK)!=0){super.mouseDragged(ev);return;}
+        if(forbiddenZoneGesture)return;
         if(pressed!=null){current=ev.getPoint();dragged=pressed.distance(current)>=4;repaint();}else super.mouseDragged(ev);
     }
     public void mouseReleased(MouseEvent ev) {
+        if(forbiddenZoneGesture&&ev.getButton()==MouseEvent.BUTTON1){forbiddenZoneGesture=false;super.mouseReleased(ev);return;}
+        if(forbiddenZoneDrawing&&owner!=null&&!editing&&pressed!=null&&ev.getButton()==MouseEvent.BUTTON1){
+            Point from=pressed,to=ev.getPoint();int selectedPage=forbiddenZonePage;boolean madeDrag=from.distance(to)>=4;pressed=null;current=null;dragged=false;forbiddenZoneDrawing=false;forbiddenZonePage=-1;repaint();
+            if(!madeDrag||selectedPage<0){owner.failure(new IllegalArgumentException("请在纸张内拖拽一个矩形区域。"));super.mouseReleased(ev);return;}
+            try{
+                AffineTransform transform=previewTransform(selectedPage);Point2D a=transform.inverseTransform(from,null),b=transform.inverseTransform(to,null);NoteLayout layout=owner.geometry().layout;
+                double x=Math.min(a.getX(),b.getX()),y=Math.min(a.getY(),b.getY()),right=Math.max(a.getX(),b.getX()),bottom=Math.max(a.getY(),b.getY());
+                if(x<0||y<0||right>layout.pageWidth||bottom>layout.pageHeight||right-x<1||bottom-y<1)throw new IllegalArgumentException("拖拽矩形必须位于纸张内，且宽高至少 1 像素。");
+                owner.createForbiddenZoneFromCanvas(selectedPage,(float)x,(float)y,(float)(right-x),(float)(bottom-y));
+            }catch(Exception error){owner.failure(error);}super.mouseReleased(ev);return;
+        }
         if(owner!=null&&!editing&&pressed!=null&&ev.getButton()==MouseEvent.BUTTON1&&selection!=null){
             current=ev.getPoint();
             if(dragged){

@@ -315,13 +315,19 @@ public final class ApplicationTheme {
                 JTextComponent text=(JTextComponent)j;
                 // Preserve styled documents, processing font sizes and their formatting.
                 if(!(text instanceof JTextPane)&&!(text instanceof JEditorPane))text.setFont(FONT);
-                text.setBackground(UiPalette.WELL);text.setForeground(UiPalette.TEXT);
+                String name=text.getName();
+                if("NoteForbiddenZoneHint".equals(name)||"NoteForbiddenPageHint".equals(name)){
+                    text.setBackground(UiPalette.SURFACE);text.setForeground(UiPalette.MUTED);
+                }else{
+                    applyEditableTone(text);
+                    text.addPropertyChangeListener("editable",e->applyEditableTone(text));
+                }
                 text.setCaretColor(UiPalette.TEXT);text.setSelectionColor(UiPalette.SELECTION);text.setSelectedTextColor(UiPalette.TEXT);text.setDisabledTextColor(UiPalette.DISABLED_TEXT);
                 // The legacy placeholder field resets its text to BLACK/GRAY on focus.
                 text.addPropertyChangeListener("foreground",e->{Color color=(Color)e.getNewValue();if(Color.BLACK.equals(color))text.setForeground(UiPalette.TEXT);else if(Color.GRAY.equals(color))text.setForeground(UiPalette.MUTED);});
                 if(text instanceof JFormattedTextField)installFormattedCaretFix((JFormattedTextField)text);
             }else if(j instanceof JLabel){
-                JLabel label=(JLabel)j;label.setFont(label.getFont()!=null&&label.getFont().isBold()?BOLD:FONT);label.setForeground(semantic(label.getForeground()));
+                JLabel label=(JLabel)j;label.setFont(label.getFont()!=null&&label.getFont().isBold()?BOLD:FONT);label.setForeground("NoteForbiddenManagerHint".equals(label.getName())?UiPalette.MUTED:semantic(label.getForeground()));
                 Window owner=SwingUtilities.getWindowAncestor(label);if(owner!=null&&owner.getClass().getName().equals("com.kenjoy.kenjoycnc.a")&&label.getIcon() instanceof ImageIcon)label.setIcon(cachedBrandIcon(label.getIcon()));
             }else if(j instanceof JPanel||j instanceof JViewport||j instanceof JScrollPane||j instanceof JSplitPane||j instanceof JToolBar||j instanceof JTabbedPane||j instanceof JOptionPane){j.setBackground(UiPalette.SURFACE);j.setForeground(UiPalette.TEXT);j.setFont(FONT);}
             if(j instanceof AbstractButton){
@@ -391,6 +397,11 @@ public final class ApplicationTheme {
                 if(press[0]!=null&&System.currentTimeMillis()-time[0]<=800L)EventQueue.invokeLater(restore);
             }
         });
+    }
+    private static void applyEditableTone(JTextComponent text){
+        boolean editable=text.isEditable();
+        text.setBackground(editable?UiPalette.WELL:UiPalette.SURFACE);
+        text.setForeground(editable?UiPalette.TEXT:UiPalette.MUTED);
     }
     private static boolean isThemedRenderer(Object r){return r instanceof DarkRenderer||r.getClass().getName().startsWith("com.kenjoy.uitrial.");}
     private static boolean isDialogPrimary(JButton b){
