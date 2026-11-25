@@ -186,6 +186,7 @@ public final class NoteChecks {
         edt(()->{try{tab.selection().clear();tab.selection().multiple=false;clickGlyph(glyph(first),0);clickGlyph(glyph(repeated),InputEvent.CTRL_DOWN_MASK);}catch(Exception e){throw new RuntimeException(e);}});
         edt(()->{BufferedImage shot=new BufferedImage(canvas.getWidth(),canvas.getHeight(),BufferedImage.TYPE_INT_RGB);Graphics2D out=shot.createGraphics();out.setBackground(Color.WHITE);canvas.paint(out);out.dispose();try{ImageIO.write(shot,"png",evidence.resolve("preview-component.png").toFile());}catch(Exception e){throw new RuntimeException(e);}});
         SidebarChecks.run(evidence);
+        runResumeChecks(tab);
         edt(()->tab.setFile(bom.toFile()));waitDone();check("open article accepts TXT and marks it for native save",tab.lastFailure()==null&&tab.document().text.equals("春风\n明月")&&tab.isDirty()&&field(tab,"documentFile")==null);
         Path importedSave=evidence.resolve("imported-txt.kjnote");edt(()->{try{tab.saveDocument(importedSave);}catch(Exception e){throw new RuntimeException(e);}});check("imported TXT saves as KJNOTE",NoteDocument.load(importedSave).text.equals("春风\n明月")&&!tab.isDirty());
         edt(()->tab.onNoteContentSet(new StringBuffer("春风\n明月再见"),tab.document().format));waitDone();check("article edit marks existing file dirty",tab.isDirty());
@@ -204,5 +205,57 @@ public final class NoteChecks {
             check("modal-blocked frame resolves effective native dialog owner to active modal dialog",modalShowing[0]&&modalResolved[0]==modal&&modalResolved[1]==modal);
         }catch(Exception e){throw new RuntimeException(e);}});
         Files.write(evidence.resolve("COMPLETE.txt"),("PASS "+results.size()+" assertions; Java "+System.getProperty("java.version")+" UI, fonts, layout, document, image and Gcode. No hardware.\n").getBytes("UTF-8"));System.out.println("NOTE_CHECKS_COMPLETE "+results.size());
+    }
+    private static void runResumeChecks(NoteTab tab)throws Exception{
+        edt(()->tab.activatePreviewPage(0));
+        NoteWriteProgress.clear();
+        check("fresh page has no resume progress",!tab.hasResumeProgress()&&tab.currentPageSource().equals("笔记当前页 1/"+tab.getPageNum()));
+        final String[] fullHolder={null},baselineHolder={null};
+        final boolean[] isPageGen={false};
+        final NoteWriteProgress.Snapshot[] snapHolder={null};
+        edt(()->{
+            if(!tab.beginMachineJob())throw new AssertionError("beginMachineJob failed");
+            com.kenjoy.kenjoycnc.c.a gen=tab.getGcodeGenerator();
+            gen.a();fullHolder[0]=gen.g();
+            isPageGen[0]=gen instanceof NoteWriteProgress.PageGenerator;
+            snapHolder[0]=((NoteWriteProgress.PageGenerator)gen).snapshot();
+            com.kenjoy.kenjoycnc.c.a baseline=new com.kenjoy.kenjoycnc.c.c(com.kenjoy.kenjoycnc.L.b(tab.machinePaths(tab.noteLayout().pages.get(0))),com.kenjoy.kenjoycnc.model.Settings.getInst().nearDst,false);
+            baseline.a();baselineHolder[0]=baseline.g();
+            tab.endMachineJob();
+        });
+        check("note machine job uses per-glyph PageGenerator",isPageGen[0]);
+        check("PageGenerator output matches baseline G-code byte-for-byte",fullHolder[0].equals(baselineHolder[0]));
+        NoteWriteProgress.Snapshot snap=snapHolder[0];
+        check("every writable path has an ordered command interval",snap.glyphs.size()==tab.noteLayout().pages.get(0).paths.size()&&snap.glyphs.size()>=5&&snap.glyphs.get(0).startCmd>0&&snap.glyphs.get(1).endCmd<snap.glyphs.get(2).startCmd&&snap.totalCommands>=snap.glyphs.get(snap.glyphs.size()-1).endCmd);
+        snap.updateCommandCounts(snap.totalCommands,snap.glyphs.get(1).endCmd,snap.glyphs.get(2).startCmd);
+        snap.status="INTERRUPTED";snap.reason="USB 连接已断开";snap.resumeGlyphId=snap.recommendedResumeGlyphId();
+        edt(()->tab.onWriteJobInterrupted(snap));
+        check("interruption highlights confirmed and in-flight glyphs and recommends resume glyph",
+            tab.hasResumeProgress()&&tab.resumeGlyphIdForPage(0)==snap.glyphs.get(2).id
+            &&tab.currentPageSource().contains("续写")&&tab.currentPageSource().contains(snap.glyphs.get(2).text));
+        edt(()->{try{((JButton)field(tab,"resumeNextButton")).doClick();}catch(Exception e){throw new RuntimeException(e);}});
+        check("next-glyph button advances resume target",tab.resumeGlyphIdForPage(0)==snap.glyphs.get(3).id);
+        edt(()->{try{((JButton)field(tab,"resumeInterruptedButton")).doClick();}catch(Exception e){throw new RuntimeException(e);}});
+        check("interrupted-glyph button restores interrupted target",tab.resumeGlyphIdForPage(0)==snap.glyphs.get(2).id);
+        final long fifthId=snap.glyphs.get(4).id;
+        edt(()->{try{tab.selection().click(fifthId,false);tab.selectionChanged();((JButton)field(tab,"resumeFromSelectionButton")).doClick();}catch(Exception e){throw new RuntimeException(e);}});
+        check("set-resume button adopts selected writable glyph",tab.resumeGlyphIdForPage(0)==fifthId);
+        final String[] resumedGcode={null},fullExportGcode={null};
+        final NoteWriteProgress.Snapshot[] resumedSnap={null};
+        edt(()->{
+            if(!tab.beginMachineJob())throw new AssertionError("resumed beginMachineJob failed");
+            com.kenjoy.kenjoycnc.c.a resumed=tab.getGcodeGenerator();
+            resumed.a();resumedGcode[0]=resumed.g();
+            resumedSnap[0]=((NoteWriteProgress.PageGenerator)resumed).snapshot();
+            List exports=tab.getExportGcodeGenerator();
+            com.kenjoy.kenjoycnc.c.a fullExport=(com.kenjoy.kenjoycnc.c.a)exports.get(0);
+            fullExport.a();fullExportGcode[0]=fullExport.g();
+            tab.endMachineJob();
+        });
+        check("resumed G-code slices strictly from chosen glyph onward",resumedSnap[0].startGlyphOrder==4&&resumedSnap[0].totalCommands<snap.totalCommands&&resumedGcode[0].length()<fullHolder[0].length());
+        check("full-page export stays complete despite resume marker",fullExportGcode[0].equals(fullHolder[0]));
+        edt(()->{try{((JButton)field(tab,"clearResumeButton")).doClick();}catch(Exception e){throw new RuntimeException(e);}});
+        check("clear resume restores default whole-page source",!tab.hasResumeProgress()&&tab.resumeGlyphIdForPage(0)==-1L&&tab.currentPageSource().equals("笔记当前页 1/"+tab.getPageNum()));
+        NoteWriteProgress.clear();
     }
 }

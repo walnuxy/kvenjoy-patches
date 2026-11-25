@@ -238,8 +238,11 @@ public final class FontUiChecks {
                 add.doClick();
                 check("→ 箭头仍可加入", right.size() == 2 && priorityFields.size() == 2);
 
+                ((JFormattedTextField)priorityFields.get(1)).setValue(Integer.valueOf(7));
                 rightList.setSelectedIndex(0);
                 remove.doClick();
+                check("移除前一项后字体仍保留自己的权重",
+                        ((Number)((JFormattedTextField)priorityFields.get(0)).getValue()).intValue() == 7);
                 check("← 箭头仍可移除", right.size() == 1 && priorityFields.size() == 1);
 
                 click(rightList, 0, 1);
@@ -268,18 +271,26 @@ public final class FontUiChecks {
                 check("40字体时确定按钮完整留在窗口内", controls.contains(SwingUtilities.convertRectangle(confirm.getParent(), confirm.getBounds(), dialog.getContentPane())));
                 check("40字体时两个箭头完整留在窗口内", controls.contains(SwingUtilities.convertRectangle(add.getParent(), add.getBounds(), dialog.getContentPane()))
                     && controls.contains(SwingUtilities.convertRectangle(remove.getParent(), remove.getBounds(), dialog.getContentPane())));
-                JScrollPane priorities = (JScrollPane)get(dialog, "priorityScroll");
-                check("优先级有独立可见视口及滚动范围", priorities.getViewport().getHeight() > 30
-                    && priorities.getVerticalScrollBar().getMaximum() > priorities.getVerticalScrollBar().getVisibleAmount());
-                JScrollBar priorityBar = priorities.getVerticalScrollBar();
+                check("40 个权重与字体共用一个滚动区", SwingUtilities.isDescendingFrom(priorityPanel, scroll));
+                Component view = scroll.getViewport().getView();
+                for (int index : new int[]{0, 19, 39}) {
+                    Component field = (Component)priorityFields.get(index);
+                    Rectangle fieldBounds = SwingUtilities.convertRectangle(field.getParent(), field.getBounds(), view);
+                    Rectangle cellBounds = SwingUtilities.convertRectangle(rightList, rightList.getCellBounds(index, index), view);
+                    check("权重位于对应字体的同一行 " + index,
+                            fieldBounds.x >= cellBounds.x + cellBounds.width
+                            && Math.abs(fieldBounds.getCenterY() - cellBounds.getCenterY()) <= 1);
+                }
+                JScrollBar priorityBar = scroll.getVerticalScrollBar();
                 priorityBar.setValue(priorityBar.getMaximum());
-                Rectangle lastField = ((Component)priorityFields.get(39)).getBounds();
-                check("优先级可滚到最后一个输入框", priorities.getViewport().getViewRect().contains(lastField));
+                Component last = (Component)priorityFields.get(39);
+                Rectangle lastField = SwingUtilities.convertRectangle(last.getParent(), last.getBounds(), view);
+                check("滚到最后一个字体时能编辑对应权重", scroll.getViewport().getViewRect().contains(lastField));
                 priorityBar.setValue(0);
                 dialog.setSize(1000, 500); dialog.validate();
                 Rectangle smallControls = new Rectangle(0, 0, dialog.getContentPane().getWidth(), dialog.getContentPane().getHeight());
                 check("缩短窗口后确定按钮仍完整可见", smallControls.contains(SwingUtilities.convertRectangle(confirm.getParent(), confirm.getBounds(), dialog.getContentPane())));
-                check("缩短窗口后优先级仍有可用视口", priorities.getViewport().getHeight() > 30);
+                check("缩短窗口后优先级仍有可用视口", scroll.getViewport().getHeight() > 30);
                 dialog.setSize(1000, 559); dialog.validate();
                 JScrollBar bar = scroll.getVerticalScrollBar();
                 check("内容超视口出现纵向滚动条", bar.isVisible());
@@ -340,9 +351,7 @@ public final class FontUiChecks {
             @Override
             public void run() {
                 right.clear();
-                for (Object field : new ArrayList(priorityFields)) {
-                    priorityPanel.remove((Component)field);
-                }
+                priorityPanel.removeAll();
                 priorityFields.clear();
                 priorityPanel.revalidate();
                 priorityPanel.repaint();
@@ -354,8 +363,23 @@ public final class FontUiChecks {
                 for (Object field : priorityFields) {
                     ((JFormattedTextField)field).setValue(Integer.valueOf(1));
                 }
+                JFormattedTextField weight = (JFormattedTextField)priorityFields.get(5);
+                for (String invalid : new String[]{"", "-1", "2.5", "12x", "2147483648"}) {
+                    weight.setText(invalid);
+                    boolean rejected = false;
+                    try {
+                        weight.commitEdit();
+                    } catch (java.text.ParseException expected) {
+                        rejected = true;
+                    }
+                    check("拒绝无效权重 " + invalid, rejected);
+                }
+                weight.setText("17");
                 FontsDialogData data = new FontsDialogData();
                 set(dialog, "p", data);
+                set(dialog, "k", local.fontListModel);
+                dialog.catalogueChanged(local.fontListModel);
+                check("刷新字体库保留未提交的同行权重", ((JFormattedTextField)priorityFields.get(5)).getText().equals("17"));
                 set(dialog, "o", new t() {
                     @Override
                     public void onFontSelected(v[] fonts, int[] chances) {
@@ -371,6 +395,7 @@ public final class FontUiChecks {
                 check("6 个字体确定选择未被 5 个上限拦截", callbackCount[0] == 6);
                 check("保存 fontsName 长度=6", data.fontsName != null && data.fontsName.length == 6);
                 check("优先权数组长度=6", data.chance != null && data.chance.length == 6);
+                check("确认直接保存未按回车的输入", data.chance != null && data.chance[5] == 17);
                 check("确定后对话框关闭", !dialog.isVisible());
             }
         });
@@ -391,7 +416,7 @@ public final class FontUiChecks {
                 check("重开后字体顺序保留", ((v)right.get(0)).f.equals("mock-font-0.gfont")
                         && ((v)right.get(5)).f.equals("mock-font-5.gfont"));
                 check("重开后优先级与字体对应", priorityFields.size() == 6
-                        && ((Number)((JFormattedTextField)priorityFields.get(5)).getValue()).intValue() == 1);
+                        && ((Number)((JFormattedTextField)priorityFields.get(5)).getValue()).intValue() == 17);
             }
         });
         final boolean[] offEdtUpdate = new boolean[1];

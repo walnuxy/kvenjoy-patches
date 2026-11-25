@@ -74,10 +74,13 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     private volatile String machineJobSource;
     private final JLabel selectionLabel=new JLabel("未选字");
     private final JLabel selectionFontLabel=new JLabel(){public Dimension getPreferredSize(){Dimension d=super.getPreferredSize();d.width=1;return d;}public Dimension getMinimumSize(){Dimension d=super.getMinimumSize();d.width=0;return d;}};
+    private final JLabel resumeStatusLabel=new JLabel("续写：未设置（整页书写）"){public Dimension getPreferredSize(){Dimension d=super.getPreferredSize();d.width=1;return d;}public Dimension getMinimumSize(){Dimension d=getPreferredSize();d.width=0;return d;}};
     private final JTextArea status=new JTextArea("应用版式保留已选字形；重新随机只影响未指定字体的字。",2,1){public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};
     private NoteSidebarView sidebar;
     private JPanel pageNavigation;
     private JButton fontButton,resetButton,undoButton,redoButton,clearMissingButton;
+    private JButton resumeFromSelectionButton,clearResumeButton,resumeInterruptedButton,resumeNextButton;
+    private NoteWriteProgress.Snapshot writeProgress;
     private JCheckBox randomCopies;
     private NoteAppearancePanel appearancePanel;
     private Set<Long> appearanceTargets;
@@ -168,6 +171,13 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         resetButton=new JButton("恢复默认字体");resetButton.setToolTipText("取消所选字的手动字体指定");resetButton.addActionListener(e->applyFont(null));wide(chosen,4,buttons(fontButton,resetButton));
         undoButton=new JButton("撤销");undoButton.setName("NoteUndo");undoButton.addActionListener(e->history(false));redoButton=new JButton("重做");redoButton.setName("NoteRedo");redoButton.addActionListener(e->history(true));wide(chosen,5,buttons(undoButton,redoButton));
         clearMissingButton=new JButton("清除红框…");clearMissingButton.setName("NoteClearMissing");clearMissingButton.setToolTipText("处理整篇文章所有缺字红框，可用指定字符或空格替代，也可删除；支持撤销");clearMissingButton.addActionListener(e->chooseMissingAction());clearMissingButton.setVisible(false);wide(chosen,6,clearMissingButton);
+        resumeStatusLabel.setName("NoteResumeStatus");wide(chosen,7,resumeStatusLabel);
+        resumeFromSelectionButton=new JButton("设为续写");resumeFromSelectionButton.setName("NoteSetResumeGlyph");resumeFromSelectionButton.setToolTipText("以当前选中的第一个可写字作为本页续写起点");resumeFromSelectionButton.addActionListener(e->setResumeFromSelection());
+        clearResumeButton=new JButton("从头书写");clearResumeButton.setName("NoteClearResume");clearResumeButton.setToolTipText("清除续写进度与起点，从本页第 1 个字重新书写");clearResumeButton.addActionListener(e->clearResumeProgress());
+        wide(chosen,8,buttons(resumeFromSelectionButton,clearResumeButton));
+        resumeInterruptedButton=new JButton("写中断字");resumeInterruptedButton.setName("NoteResumeInterruptedGlyph");resumeInterruptedButton.setToolTipText("将续写起点设回断线或中断时正在写的字");resumeInterruptedButton.addActionListener(e->selectInterruptedResumeGlyph());
+        resumeNextButton=new JButton("写下一字");resumeNextButton.setName("NoteResumeNextGlyph");resumeNextButton.setToolTipText("若纸面上中断的字已写完，将续写起点顺延到下一个字");resumeNextButton.addActionListener(e->selectNextResumeGlyph());
+        wide(chosen,9,buttons(resumeInterruptedButton,resumeNextButton));
         randomCopies=new JCheckBox("每份重新随机");randomCopies.setToolTipText("启用新随机误差时，每份只重抽误差、保留字体；旧文章沿用原随机方式");
         status.setName("NoteEditStatus");status.setAlignmentX(LEFT_ALIGNMENT);status.setEditable(false);status.setLineWrap(true);status.setWrapStyleWord(true);status.setOpaque(false);status.setFont(UIManager.getFont("Label.font"));status.setBorder(BorderFactory.createEmptyBorder(4,4,2,4));
         JScrollPane statusPane=new JScrollPane(status,JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,JScrollPane.HORIZONTAL_SCROLLBAR_NEVER){public Dimension getPreferredSize(){Dimension d=super.getPreferredSize();d.width=1;d.height=status.getFontMetrics(status.getFont()).getHeight()*2+status.getInsets().top+status.getInsets().bottom+4;return d;}public Dimension getMaximumSize(){return new Dimension(Integer.MAX_VALUE,getPreferredSize().height);}};statusPane.setBorder(BorderFactory.createEmptyBorder());statusPane.setAlignmentX(LEFT_ALIGNMENT);add(statusPane);
@@ -294,9 +304,10 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
                     document=p.document;layout=p.layout;
                     if(newDocument)editorSession.reset(document);else{NoteEditSession.Transaction t=editorSession.capture();editorSession.commit(t,document,NoteEditSession.Kind.OTHER);}
                     document=editorSession.mutableDocument();layoutRevision=editorSession.revision();inlineError=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);
-                    if(newDocument){curPage=0;selection.clear();savedDocument=document.encode();editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();}else selection.retain(document);
+                    if(newDocument){documentId=UUID.randomUUID().toString();writeProgress=null;curPage=0;selection.clear();savedDocument=document.encode();editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();}else selection.retain(document);
                     content=new StringBuffer(document.text);contentSet=document.format;pageDatas.clear();for(NoteLayout.Page page:layout.pages)pageDatas.add(new com.kenjoy.kenjoycnc.l.f(0,page.paths,Collections.emptyList()));
                     if(anchor>=0&&!newDocument){int index=layout.pageOf(anchor);if(index>=0)curPage=index;}
+                    reconcileWriteProgress(false);
                     changePage();if(notePanel!=null)notePanel.syncEditor();message("已更新。"+(isDirty()?"文章有未保存修改。":""));committed=true;if(success!=null)success.run();recoveryTimer.restart();
                 }catch(CancellationException ignored){}catch(Exception error){failure(error);if(!committed&&onFailure!=null)onFailure.run();}finally{if(ticket==request){pending=null;selectionChanged();}}
             }
@@ -527,7 +538,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         }catch(Exception error){failure(error);}
     }
     private void cacluteAllPaths(){processAsync();} // Original entry point; spelling is part of compatibility.
-    private void updateSelectionControls(){updateForbiddenZoneButtons();updateMissingButton();Set<String> names=new LinkedHashSet<String>();int explicit=0;for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id)){NoteDocument.FontRef f=a.override!=null?a.override:a.automatic;if(f!=null)names.add(f.name);if(a.override!=null)explicit++;}String detail=names.size()>1?"混合字体":names.isEmpty()?"点选、拖框或选择整行":names.iterator().next();selectionLabel.setText("已选 "+selection.ids().size()+" 字 · 指定 "+explicit+" 字"+(isDirty()?" · 未保存":""));selectionFontLabel.setText("字体："+detail);selectionFontLabel.setToolTipText(detail);boolean valid=!selection.ids().isEmpty()&&!isBusy();fontButton.setEnabled(valid);resetButton.setEnabled(valid);undoButton.setEnabled(editorSession.canUndo());redoButton.setEnabled(editorSession.canRedo());setPageInputsEnabled(!isBusy());if(appearancePanel!=null)appearancePanel.refresh();if(notePanel!=null)notePanel.repaint();}
+    private void updateSelectionControls(){updateForbiddenZoneButtons();updateMissingButton();Set<String> names=new LinkedHashSet<String>();int explicit=0;for(NoteDocument.Atom a:document.atoms)if(selection.ids().contains(a.id)){NoteDocument.FontRef f=a.override!=null?a.override:a.automatic;if(f!=null)names.add(f.name);if(a.override!=null)explicit++;}String detail=names.size()>1?"混合字体":names.isEmpty()?"点选、拖框或选择整行":names.iterator().next();selectionLabel.setText("已选 "+selection.ids().size()+" 字 · 指定 "+explicit+" 字"+(isDirty()?" · 未保存":""));selectionFontLabel.setText("字体："+detail);selectionFontLabel.setToolTipText(detail);boolean valid=!selection.ids().isEmpty()&&!isBusy();fontButton.setEnabled(valid);resetButton.setEnabled(valid);undoButton.setEnabled(editorSession.canUndo());redoButton.setEnabled(editorSession.canRedo());setPageInputsEnabled(!isBusy());updateResumeControls();if(appearancePanel!=null)appearancePanel.refresh();if(notePanel!=null)notePanel.repaint();}
     private void setPageInputsEnabled(boolean enabled){cbSettings.setEnabled(enabled);for(JFormattedTextField field:new JFormattedTextField[]{tfWidth,tfHeight,tfLeftGap,tfRightGap,tfTopGap,tfBottomGap,tfLines,tfWordGap,tfFontSize})field.setEnabled(enabled);btnSave.setEnabled(enabled);btnDelete.setEnabled(enabled);btnChooseFont.setEnabled(enabled);}
     private void selectCurrentLine(){if(layout.pages.isEmpty())return;NoteLayout.Page page=layout.pages.get(curPage);for(NoteLayout.Glyph g:page.glyphs)if(selection.ids().contains(g.id)){selection.add(page.lines.get(g.line).ids,false);selectionChanged();return;}message("先点选行内任意一个字，或点击预览左侧 › 选整行。");}
     private void updateMissingButton(){boolean visible=!layout.missing.isEmpty();if(clearMissingButton.isVisible()!=visible){clearMissingButton.setVisible(visible);revalidate();repaint();}clearMissingButton.setEnabled(visible&&!isBusy());}
@@ -768,12 +779,36 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
     public int getPageNum(){return exportLayout().pages.size();}
     public int getCurrentPageIndex(){return curPage;}
     public JComponent pageNavigation(){return pageNavigation;}
-    public String currentPageSource(){return "笔记当前页 "+(layout.pages.isEmpty()?0:curPage+1)+"/"+layout.pages.size();}
-    public boolean beginMachineJob(){if(!isOutputReady()||layout.pages.isEmpty()||layout.pages.get(curPage).paths.isEmpty())return false;com.kenjoy.kenjoycnc.c.a generator=getGcodeGenerator();if(generator==null)return false;machineJobSource=currentPageSource();machineJobGenerator=generator;return true;}
-    public void endMachineJob(){machineJobGenerator=null;machineJobSource=null;}
+    public String currentPageSource(){
+        String base="笔记当前页 "+(layout.pages.isEmpty()?0:curPage+1)+"/"+layout.pages.size();
+        NoteLayout.Glyph resume=activeResumeGlyphForPage(curPage);
+        return resume==null?base:base+" · 从第"+(resume.line+1)+"行「"+resume.text+"」续写";
+    }
+    public boolean beginMachineJob(){if(!isOutputReady()||layout.pages.isEmpty()||layout.pages.get(curPage).paths.isEmpty())return false;com.kenjoy.kenjoycnc.c.a generator=createPageGcodeGenerator(curPage,true);if(generator==null)return false;machineJobSource=currentPageSource();machineJobGenerator=generator;return true;}
+    public void endMachineJob(){machineJobGenerator=null;machineJobSource=null;NoteWriteProgress.clearPreparedFor(this);}
     public String machineJobSource(){return machineJobSource;}
     public NoteLayout exportLayout(){NoteExportHooks.Job job=NoteExportHooks.current(this);return job==null?layout:job.layout;}
-    public com.kenjoy.kenjoycnc.c.a getGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generator(job.pageIndex);if(machineJobGenerator!=null)return machineJobGenerator;if(layout.pages.isEmpty()||!isOutputReady())return null;java.awt.geom.AffineTransform transform=machineTransform();List converted=validatedMachinePaths(curPage,layout.pages.get(curPage),document,Settings.getInst().dpi,transform);return new com.kenjoy.kenjoycnc.c.c(L.b(converted),Settings.getInst().nearDst,false);}
+    public com.kenjoy.kenjoycnc.c.a getGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generator(job.pageIndex);if(machineJobGenerator!=null)return machineJobGenerator;if(layout.pages.isEmpty()||!isOutputReady())return null;return createPageGcodeGenerator(curPage,false);}
+    private com.kenjoy.kenjoycnc.c.a createPageGcodeGenerator(int pageIndex,boolean trackWrite){
+        if(layout.pages.isEmpty()||pageIndex<0||pageIndex>=layout.pages.size())return null;
+        NoteLayout.Page page=layout.pages.get(pageIndex);
+        if(page.paths.isEmpty())return null;
+        java.awt.geom.AffineTransform transform=machineTransform();
+        List converted=validatedMachinePaths(pageIndex,page,document,Settings.getInst().dpi,transform);
+        List<NoteLayout.Glyph> glyphs=machineGlyphs(page);
+        if(glyphs.size()!=converted.size())return new com.kenjoy.kenjoycnc.c.c(L.b(converted),Settings.getInst().nearDst,false);
+        NoteWriteProgress.Snapshot snapshot=buildBaseSnapshot(pageIndex,currentProcessingAngle());
+        if(snapshot==null)return new com.kenjoy.kenjoycnc.c.c(L.b(converted),Settings.getInst().nearDst,false);
+        int startOrder=0;
+        long resumeId=resumeGlyphIdForPage(pageIndex);
+        if(resumeId>0L){
+            int idx=snapshot.indexOf(resumeId);
+            if(idx>=0&&idx<converted.size()){startOrder=idx;snapshot.resumeGlyphId=resumeId;}
+        }
+        snapshot.startGlyphOrder=startOrder;
+        List slice=L.b(converted.subList(startOrder,converted.size()));
+        return new NoteWriteProgress.PageGenerator(this,snapshot,slice,trackWrite);
+    }
     public List getExportGcodeGenerator(){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job!=null)return job.generators();List result=new ArrayList();if(!isOutputReady())throw new IllegalStateException(outputReadinessMessage());java.awt.geom.AffineTransform transform=machineTransform();for(int index=0;index<layout.pages.size();index++){List converted=validatedMachinePaths(index,layout.pages.get(index),document,Settings.getInst().dpi,transform);result.add(new com.kenjoy.kenjoycnc.c.c(L.b(converted),Settings.getInst().nearDst,false));}return result;}
     public BufferedImage renderToImage(int page){NoteExportHooks.Job job=NoteExportHooks.current(this);if(job==null&&!isOutputReady())throw new IllegalStateException(outputReadinessMessage());NoteLayout l=job==null?layout:job.layout;NoteDocument d=job==null?document:job.document;return image(l,d,page,job==null?Settings.getInst().dpi:job.dpi);}
     public static BufferedImage image(NoteLayout layout,NoteDocument d,int index,float dpi){if(index<0||index>=layout.pages.size())throw new IllegalArgumentException("页码不存在");double width=d.page.pageWidth*(double)dpi/25.4,height=d.page.pageHeight*(double)dpi/25.4;if(!Double.isFinite(width)||!Double.isFinite(height)||width<1||height<1||width>12000||height>12000||width*height>24_000_000)throw new IllegalArgumentException("导出页面尺寸过大（最多 2400 万像素）");int w=(int)Math.round(width),h=(int)Math.round(height);BufferedImage img=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);Graphics2D out=img.createGraphics();out.setColor(Color.WHITE);out.fillRect(0,0,w,h);out.setColor(Color.BLACK);out.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);out.draw(NoteLayout.path(layout.pages.get(index).paths));out.dispose();return img;}
@@ -834,6 +869,7 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
                 try{Prepared result=get();boolean followCaret=notePanel!=null&&notePanel.isEditing()&&curPage==caretPage();if(editorSession.adoptLayout(result.document,revision)){
                     document=editorSession.mutableDocument();layout=result.layout;layoutRevision=revision;inlineError=null;lastFailure=null;displayLayout=layout;editGeometry=new NoteEditGeometry(layout,36);
                     content=new StringBuffer(document.text);pageDatas.clear();for(NoteLayout.Page p:layout.pages)pageDatas.add(new com.kenjoy.kenjoycnc.l.f(0,p.paths,Collections.emptyList()));
+                    reconcileWriteProgress(true);
                     curPage=followCaret?Math.min(caretPage(),Math.max(0,layout.pages.size()-1)):Math.max(0,Math.min(curPage,layout.pages.size()-1));changePage();message("笔迹已更新。"+(isDirty()?"文章有未保存修改。":""));
                 }}catch(Exception e){if(revision==editorSession.revision()){Throwable cause=e;while(cause.getCause()!=null)cause=cause.getCause();inlineError=cause.getMessage()==null?cause.toString():cause.getMessage();lastFailure=inlineError;message("正文已保留，笔迹尚未完成："+inlineError);}}
                 finally{inlinePending=null;if(revision!=editorSession.revision())layoutQueued=true;if(layoutQueued)layoutTimer.restart();selectionChanged();restoreView();recoveryTimer.restart();}
@@ -881,15 +917,207 @@ public class NoteTab extends BaseTab implements ActionListener,NoteTextEditor.Ho
         if(editorClosing||awaitingInitialRecovery())return;if(recoveryWriting){recoveryAgain=true;return;}final NoteRecovery.Snapshot snapshot=recoverySnapshot();recoveryWriting=true;
         recoveryWorker=new SwingWorker<Void,Void>(){protected Void doInBackground()throws Exception{NoteRecovery.save(snapshot);return null;}protected void done(){recoveryWriting=false;try{get();}catch(Exception e){reportFailure(e);}if(recoveryAgain&&!editorClosing){recoveryAgain=false;recoveryTimer.restart();}}};recoveryWorker.execute();
     }
+    private static final class RestoredRecovery {
+        final NoteRecovery.Snapshot editor;
+        final NoteWriteProgress.Snapshot progress;
+        RestoredRecovery(NoteRecovery.Snapshot editor,NoteWriteProgress.Snapshot progress){this.editor=editor;this.progress=progress;}
+    }
     private void restoreRecovery(){
         final long restoreRevision=editorSession.revision(),restoreRequest=request;
-        new SwingWorker<NoteRecovery.Snapshot,Void>(){protected NoteRecovery.Snapshot doInBackground()throws Exception{return NoteRecovery.load();}protected void done(){try{
-            NoteRecovery.Snapshot value=get();if(editorClosing||value==null||!document.text.isEmpty()||editorSession.revision()!=restoreRevision||request!=restoreRequest||pending!=null||loading!=null)return;documentId=value.documentId;
+        new SwingWorker<RestoredRecovery,Void>(){protected RestoredRecovery doInBackground()throws Exception{
+            NoteRecovery.Snapshot editor=NoteRecovery.load();
+            NoteWriteProgress.Snapshot progress=null;
+            try{progress=NoteWriteProgress.load();}catch(Exception error){System.err.println("NOTE_WRITE_PROGRESS_LOAD "+error.getMessage());}
+            return new RestoredRecovery(editor,progress);
+        }protected void done(){try{
+            RestoredRecovery restored=get();NoteRecovery.Snapshot value=restored.editor;
+            if(editorClosing||value==null||!document.text.isEmpty()||editorSession.revision()!=restoreRevision||request!=restoreRequest||pending!=null||loading!=null)return;documentId=value.documentId;
+            if(restored.progress!=null&&Objects.equals(documentId,restored.progress.documentId))writeProgress=restored.progress;
             editorSession.reset(value.document);document=editorSession.mutableDocument();editorSession.setSelection(value.anchor,value.dot);documentFile=value.file==null?null:Paths.get(value.file);savedDocument=value.savedState==null?"":value.savedState;if(value.dirty)editorSession.markUnsaved();else editorSession.markSaved();setPageInfo(document.page);restoreInputDefaults();curPage=value.page;changed();
             viewAngle=value.processingAngle;viewPosition=new Point(value.scrollX,value.scrollY);viewCaptured=true;pendingViewRestore=true;
             if(notePanel!=null){notePanel.a(viewAngle);viewScale=notePanel.displayScale();notePanel.syncEditor();}setEditing(value.editing);
-            SwingUtilities.invokeLater(NoteTab.this::restoreView);message("已恢复上次编辑的文章。");
+            SwingUtilities.invokeLater(NoteTab.this::restoreView);message(writeProgress==null?"已恢复上次编辑的文章。":"已恢复上次编辑的文章及书写进度。");
         }catch(Exception e){reportFailure(e);}finally{recoveryRestoring=false;}}}.execute();
+    }
+    private float currentProcessingAngle(){return notePanel!=null?notePanel.processingAngle():viewAngle;}
+    private static List<NoteLayout.Glyph> machineGlyphs(NoteLayout.Page page){
+        if(page==null||page.paths==null||page.glyphs==null)return Collections.emptyList();
+        IdentityHashMap<com.kenjoy.kenjoycnc.g.e,NoteLayout.Glyph> byPath=new IdentityHashMap<com.kenjoy.kenjoycnc.g.e,NoteLayout.Glyph>();
+        for(NoteLayout.Glyph g:page.glyphs)if(g.path!=null&&!g.whitespace&&!g.missing&&!g.pending)byPath.put(g.path,g);
+        List<NoteLayout.Glyph> result=new ArrayList<NoteLayout.Glyph>(page.paths.size());
+        for(com.kenjoy.kenjoycnc.g.e path:page.paths){NoteLayout.Glyph matched=byPath.get(path);if(matched==null)return Collections.emptyList();result.add(matched);}
+        return result;
+    }
+    private NoteWriteProgress.Snapshot buildBaseSnapshot(int pageIndex,float angle){
+        if(layout==null||pageIndex<0||pageIndex>=layout.pages.size())return null;
+        List<NoteLayout.Glyph> glyphs=machineGlyphs(layout.pages.get(pageIndex));
+        if(glyphs.isEmpty())return null;
+        NoteWriteProgress.Snapshot s=new NoteWriteProgress.Snapshot();
+        s.documentId=documentId;s.contentIdentity=String.valueOf(editorSession.contentIdentity());
+        s.textHash=NoteWriteProgress.textHash(document.text);
+        s.geometryKey=layout.geometryKey==null?"":layout.geometryKey;
+        s.pageIndex=pageIndex;s.pageCount=layout.pages.size();s.processingAngle=angle;
+        s.updatedAtMillis=System.currentTimeMillis();
+        int lastLine=-1,col=0;
+        for(int i=0;i<glyphs.size();i++){
+            NoteLayout.Glyph g=glyphs.get(i);
+            if(g.line!=lastLine){lastLine=g.line;col=1;}else col++;
+            NoteWriteProgress.GlyphEntry entry=new NoteWriteProgress.GlyphEntry();
+            entry.id=g.id;entry.text=g.text;entry.line=g.line;entry.column=col;entry.pageOrder=i+1;
+            s.glyphs.add(entry);
+        }
+        return s;
+    }
+    private boolean isSnapshotCompatible(NoteWriteProgress.Snapshot s){
+        if(s==null||layout==null||inlineError!=null||layoutRevision!=editorSession.revision())return false;
+        if(!Objects.equals(documentId,s.documentId))return false;
+        if(s.pageIndex<0||s.pageIndex>=layout.pages.size())return false;
+        if(Float.compare(currentProcessingAngle(),s.processingAngle)!=0)return false;
+        if(s.textHash!=null&&!s.textHash.isEmpty()&&!Objects.equals(NoteWriteProgress.textHash(document.text),s.textHash))return false;
+        if(s.geometryKey!=null&&!s.geometryKey.isEmpty()&&!Objects.equals(layout.geometryKey,s.geometryKey))return false;
+        List<NoteLayout.Glyph> glyphs=machineGlyphs(layout.pages.get(s.pageIndex));
+        if(glyphs.size()!=s.glyphs.size())return false;
+        for(int i=0;i<glyphs.size();i++){
+            NoteLayout.Glyph g=glyphs.get(i);NoteWriteProgress.GlyphEntry e=s.glyphs.get(i);
+            if(g.id!=e.id||!Objects.equals(g.text,e.text))return false;
+        }
+        return true;
+    }
+    private void reconcileWriteProgress(boolean clearDiskIfStale){
+        if(writeProgress==null||isBusy()||inlineError!=null||layoutRevision!=editorSession.revision())return;
+        if(!isSnapshotCompatible(writeProgress)){
+            writeProgress=null;
+            if(clearDiskIfStale)NoteWriteProgress.clearSaved();
+        }
+    }
+    public NoteWriteProgress.Snapshot writeProgressForPage(int pageIndex){
+        if(writeProgress==null||writeProgress.pageIndex!=pageIndex)return null;
+        if(!isBusy()&&!isSnapshotCompatible(writeProgress))return null;
+        return writeProgress;
+    }
+    public long resumeGlyphIdForPage(int pageIndex){
+        NoteWriteProgress.Snapshot s=writeProgressForPage(pageIndex);
+        if(s==null)return -1L;
+        if(s.resumeGlyphId>0L&&s.indexOf(s.resumeGlyphId)>=0)return s.resumeGlyphId;
+        return s.hasExecutionProgress()?s.recommendedResumeGlyphId():-1L;
+    }
+    private NoteLayout.Glyph activeResumeGlyphForPage(int pageIndex){
+        long id=resumeGlyphIdForPage(pageIndex);
+        if(id<=0L||layout==null||pageIndex<0||pageIndex>=layout.pages.size())return null;
+        for(NoteLayout.Glyph g:layout.pages.get(pageIndex).glyphs)if(g.id==id)return g;
+        return null;
+    }
+    public boolean hasResumeProgress(){return writeProgress!=null;}
+    private long firstWritableSelectedGlyphId(){
+        if(layout==null||selection.ids().isEmpty())return -1L;
+        if(curPage>=0&&curPage<layout.pages.size()){
+            for(NoteLayout.Glyph g:machineGlyphs(layout.pages.get(curPage)))if(selection.ids().contains(g.id))return g.id;
+        }
+        for(NoteLayout.Page p:layout.pages)for(NoteLayout.Glyph g:machineGlyphs(p))if(selection.ids().contains(g.id))return g.id;
+        return -1L;
+    }
+    private void scrollToGlyph(int pageIndex,long glyphId){
+        if(notePanel==null||layout==null||pageIndex<0||pageIndex>=layout.pages.size())return;
+        for(NoteLayout.Glyph g:layout.pages.get(pageIndex).glyphs)if(g.id==glyphId){
+            Point center=notePanel.previewPoint(pageIndex,(float)g.cell.getCenterX(),(float)g.cell.getCenterY());
+            notePanel.scrollRectToVisible(new Rectangle(center.x-40,center.y-40,80,80));break;
+        }
+    }
+    public void setResumeGlyphId(long glyphId){
+        if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(()->setResumeGlyphId(glyphId));return;}
+        if(isBusy()||NoteWriteProgress.isWriting(documentId)||layout==null||layout.pages.isEmpty())return;
+        int targetPage=layout.pageOf(glyphId);
+        if(targetPage<0)return;
+        boolean writable=false;
+        for(NoteLayout.Glyph g:machineGlyphs(layout.pages.get(targetPage)))if(g.id==glyphId){writable=true;break;}
+        if(!writable){message("所选字符缺少可写笔迹或为空白，不能作为续写起点。");return;}
+        if(curPage!=targetPage)activatePreviewPage(targetPage);
+        if(writeProgress!=null&&writeProgress.pageIndex==targetPage&&isSnapshotCompatible(writeProgress)){
+            writeProgress.resumeGlyphId=glyphId;writeProgress.updatedAtMillis=System.currentTimeMillis();
+        }else{
+            NoteWriteProgress.Snapshot s=buildBaseSnapshot(targetPage,currentProcessingAngle());
+            if(s==null)return;
+            s.status="RESUME_SELECTED";s.startGlyphOrder=0;s.resumeGlyphId=glyphId;writeProgress=s;
+        }
+        NoteWriteProgress.saveResumeSelection(writeProgress.copy());
+        updateResumeControls();if(notePanel!=null)notePanel.repaint();
+        scrollToGlyph(targetPage,glyphId);
+        message(writeProgress.resumeTargetSummary());
+    }
+    public void setResumeFromSelection(){
+        if(isBusy()||NoteWriteProgress.isWriting(documentId))return;
+        long id=firstWritableSelectedGlyphId();
+        if(id<=0L){message("请先在预览中点选一个可写字作为续写起点。");return;}
+        setResumeGlyphId(id);
+    }
+    public void selectInterruptedResumeGlyph(){
+        if(isBusy()||NoteWriteProgress.isWriting(documentId)||writeProgress==null)return;
+        long id=writeProgress.recommendedResumeGlyphId();
+        if(id<=0L)return;
+        setResumeGlyphId(id);selection.click(id,false);selectionChanged();
+    }
+    public void selectNextResumeGlyph(){
+        if(isBusy()||NoteWriteProgress.isWriting(documentId)||writeProgress==null)return;
+        long nextId=writeProgress.nextResumeGlyphId();
+        if(nextId<=0L){message("当前已是本页最后一个可写字。");return;}
+        setResumeGlyphId(nextId);selection.click(nextId,false);selectionChanged();
+    }
+    public void clearResumeProgress(){
+        if(!SwingUtilities.isEventDispatchThread()){SwingUtilities.invokeLater(this::clearResumeProgress);return;}
+        if(isBusy()||NoteWriteProgress.isWriting(documentId))return;
+        writeProgress=null;NoteWriteProgress.clearSaved();
+        updateResumeControls();if(notePanel!=null)notePanel.repaint();
+        message("已清除续写断点，下次将从本页第 1 个字书写。");
+    }
+    public void onWriteJobProgress(NoteWriteProgress.Snapshot snapshot){
+        if(snapshot==null||!Objects.equals(documentId,snapshot.documentId))return;
+        writeProgress=snapshot;updateResumeControls();if(notePanel!=null)notePanel.repaint();
+    }
+    public void onWriteJobInterrupted(NoteWriteProgress.Snapshot snapshot){
+        if(snapshot==null||!Objects.equals(documentId,snapshot.documentId))return;
+        writeProgress=snapshot;
+        if(layout!=null&&snapshot.pageIndex>=0&&snapshot.pageIndex<layout.pages.size()&&curPage!=snapshot.pageIndex)activatePreviewPage(snapshot.pageIndex);
+        else{updateResumeControls();if(notePanel!=null)notePanel.repaint();}
+        if(snapshot.resumeGlyphId>0L)scrollToGlyph(snapshot.pageIndex,snapshot.resumeGlyphId);
+        message(snapshot.progressSummary()+"；"+snapshot.resumeTargetSummary());
+    }
+    public void onWriteJobCompleted(){
+        writeProgress=null;updateResumeControls();if(notePanel!=null)notePanel.repaint();
+        message("本页书写已完成。");
+    }
+    public void onCanvasAngleChanged(){
+        if(writeProgress==null||isBusy()||layoutRevision!=editorSession.revision())return;
+        if(Float.compare(currentProcessingAngle(),writeProgress.processingAngle)!=0){
+            writeProgress=null;NoteWriteProgress.clearSaved();
+            updateResumeControls();if(notePanel!=null)notePanel.repaint();
+            message("加工方向已变化，已清除旧的续写断点。");
+        }
+    }
+    private void updateResumeControls(){
+        if(resumeFromSelectionButton==null)return;
+        boolean writing=NoteWriteProgress.isWriting(documentId);
+        boolean busy=isBusy()||writing;
+        boolean hasSelection=firstWritableSelectedGlyphId()>0L;
+        boolean hasProgress=writeProgress!=null;
+        boolean hasInterrupted=hasProgress&&writeProgress.hasExecutionProgress()&&writeProgress.recommendedResumeGlyphId()>0L;
+        boolean hasNext=hasProgress&&writeProgress.nextResumeGlyphId()>0L;
+        resumeFromSelectionButton.setEnabled(!busy&&hasSelection);
+        clearResumeButton.setEnabled(!busy&&hasProgress);
+        resumeInterruptedButton.setEnabled(!busy&&hasInterrupted);
+        resumeNextButton.setEnabled(!busy&&hasNext);
+        if(!hasProgress){
+            resumeStatusLabel.setText("续写：未设置（整页书写）");
+            resumeStatusLabel.setToolTipText("断线或终止后会自动记录进度，也可选中任意字点击“设为续写”。");
+        }else if(writeProgress.pageIndex!=curPage){
+            String tip=writeProgress.progressSummary()+"；"+writeProgress.resumeTargetSummary();
+            resumeStatusLabel.setText("第 "+(writeProgress.pageIndex+1)+" 页有续写进度");
+            resumeStatusLabel.setToolTipText(tip);
+        }else{
+            String summary=writeProgress.resumeTargetSummary();
+            String progress=writeProgress.progressSummary();
+            resumeStatusLabel.setText(summary);
+            resumeStatusLabel.setToolTipText(progress+"；"+summary);
+        }
     }
     private void waitForRecoveryWriter()throws InterruptedException{if(recoveryWorker!=null)try{recoveryWorker.get();}catch(java.util.concurrent.ExecutionException ignored){/* The current synchronous save is retried below. */}}
     public void activatePreviewPage(int page){curPage=Math.max(0,Math.min(page,Math.max(0,geometry().layout.pages.size()-1)));changePage();}

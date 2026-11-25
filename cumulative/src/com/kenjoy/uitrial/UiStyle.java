@@ -125,7 +125,7 @@ public final class UiStyle {
             shell(c);c.setBorder(new TopHairlineBorder(saved.get(c).insets));shell(((JScrollPane)c).getViewport());
             JComponent view=(JComponent)((JScrollPane)c).getViewport().getView();style(view);view.setForeground(MUTED);return;
         }
-        boolean noteFontLabel=c instanceof JLabel && "NoteSelectionFont".equals(c.getName());
+        boolean noteFontLabel=c instanceof JLabel && ("NoteSelectionFont".equals(c.getName())||"NoteResumeStatus".equals(c.getName()));
         if(!PLAIN.contains(c.getClass().getName()) && !noteSection && !noteFontLabel){
             if(c instanceof JPanel)for(Component child:c.getComponents())plain(child);
             return;
@@ -138,7 +138,7 @@ public final class UiStyle {
         if(!remember(c))return;
         Saved old=saved.get(c);
         if(c.isEnabled())c.setForeground(TEXT);
-        if(c instanceof JLabel && ("NoteSelectionCount".equals(c.getName())||"NoteSelectionFont".equals(c.getName())))c.setForeground(MUTED);
+        if(c instanceof JLabel && ("NoteSelectionCount".equals(c.getName())||"NoteSelectionFont".equals(c.getName())||"NoteResumeStatus".equals(c.getName())))c.setForeground(MUTED);
         boolean input=c instanceof JTextField || c instanceof JComboBox;
         c.setBackground(input?UiPalette.WELL:SURFACE);
         if(c instanceof JSeparator)c.setForeground(UiPalette.GUIDE);

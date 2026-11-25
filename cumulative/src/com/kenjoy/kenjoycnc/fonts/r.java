@@ -1,9 +1,6 @@
 /*
- * 字体选择对话框：在原反编译逻辑上增加
- *  - 右侧“已选择字体”纵向滚动（整列滚轮可用）
- *  - 双击左侧字体加入、双击右侧条目移除
- *  - 取消“最多选择 5 个字体”的上限（与 fontcap v2 语义一致）
- * 其余字段/方法签名保持不变，供原有 s（窗口关闭）、z（字体列表）调用。
+ * Selected font previews and weights share one scrolling area.
+ * The original dialog entry points are also used by the font catalogue.
  */
 package com.kenjoy.kenjoycnc.fonts;
 
@@ -11,10 +8,10 @@ import com.kenjoy.kenjoycnc.data.FontsDialogData;
 import com.kenjoy.kenjoycnc.data.Storage;
 import com.kenjoy.kenjoycnc.L;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
-import java.awt.Container;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -24,11 +21,13 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
-import java.io.Serializable;
 import java.text.NumberFormat;
+import java.text.ParseException;
+import java.text.ParsePosition;
 import java.util.ArrayList;
-import java.util.EventObject;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JDialog;
@@ -38,13 +37,12 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.JTabbedPane;
-import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
-import javax.swing.border.TitledBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import javax.swing.text.NumberFormatter;
 
 public class r
 extends JDialog
@@ -58,7 +56,6 @@ ChangeListener {
     private JButton f;
     private JList g;
     private JLabel h;
-    private JTextPane i;
     private DefaultListModel j;
     private DefaultListModel k;
     private z l;
@@ -67,13 +64,12 @@ ChangeListener {
     private t o;
     private FontsDialogData p;
     private JPanel q;
-    private List r;
-    private JTextPane s;
+    private final List<JFormattedTextField> r = new ArrayList<>();
 
     /* 新增：右侧整列与滚动容器，仅本类使用。 */
     private JPanel selectedPanel;
     private JScrollPane selectedScroll;
-    private JScrollPane priorityScroll;
+    private SelectedFontView selectedView;
     private FontFolderFilter folderFilter;
 
     public r() {
@@ -85,65 +81,46 @@ ChangeListener {
         this.a = new JTabbedPane(1);
         this.a.addChangeListener(this);
         this.getContentPane().add(this.a);
-        JPanel jPanel = new JPanel();
-        this.getContentPane().add(jPanel);
-        jPanel.setLayout(new GridLayout(0, 2, 0, 0));
         this.c = new JPanel(new BorderLayout(0, 5));
-        jPanel.add(this.c);
-        JPanel details = new JPanel(new BorderLayout(0, 5));
-        this.c.add(details, BorderLayout.CENTER);
-        this.q = new JPanel(new com.kenjoy.kenjoycnc.h.a());
-        this.q.setBorder(new TitledBorder(UIManager.getBorder("TitledBorder.border"), "\u5b57\u4f53\u4f18\u5148\u7ea7", 4, 2, null, new Color(0, 0, 0)));
-        this.priorityScroll = new JScrollPane(this.q);
-        this.priorityScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        this.priorityScroll.getVerticalScrollBar().setUnitIncrement(18);
-        details.add(this.priorityScroll, BorderLayout.CENTER);
-        JPanel notes = new JPanel(new com.kenjoy.kenjoycnc.h.a());
-        details.add(notes, BorderLayout.SOUTH);
-        this.s = new JTextPane();
-        this.s.setForeground(Color.RED);
-        this.s.setText("优先级：出现概率 = 当前值 / 所有值之和。");
-        this.s.setEditable(false);
-        notes.add(this.s);
-        this.i = new JTextPane();
-        this.i.setText("双击左侧加入，右侧移除。\n可多选；完成后点“确定选择”。");
-        notes.add(this.i);
-        JPanel actions = new JPanel(new GridLayout(3, 1, 0, 5));
-        this.c.add(actions, BorderLayout.SOUTH);
-        this.d = new JButton("\u2192");
-        this.d.addActionListener(this);
-        actions.add(this.d);
-        this.e = new JButton("\u2190");
-        this.e.addActionListener(this);
-        actions.add(this.e);
-        this.f = new JButton("\u786e\u5b9a\u9009\u62e9");
-        this.f.setEnabled(false);
-        this.f.addActionListener(this);
-        actions.add(this.f);
+        this.getContentPane().add(this.c);
 
-        this.selectedPanel = new JPanel(new BorderLayout(0, 0));
-        jPanel.add(this.selectedPanel);
-        this.h = new JLabel("\u5df2\u9009\u62e9\u5b57\u4f53");
+        this.selectedPanel = new JPanel(new BorderLayout());
+        this.c.add(this.selectedPanel, BorderLayout.CENTER);
+        this.h = new JLabel("已选择字体 · 权重");
+        this.h.setToolTipText("权重越大，该字体被随机选中的概率越高。");
         this.selectedPanel.add(this.h, BorderLayout.NORTH);
-        this.g = new JList();
+
         this.j = new DefaultListModel();
-        this.g.setModel(this.j);
+        this.g = new JList(this.j);
+        this.g.setFixedCellHeight(108);
         this.g.setCellRenderer(new com.kenjoy.kenjoycnc.l.a());
-        this.selectedScroll = new JScrollPane(this.g);
-        this.selectedScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        this.q = new JPanel(new GridLayout(0, 1));
+        this.selectedView = new SelectedFontView(this.g, this.q);
+        this.selectedScroll = new JScrollPane(this.selectedView);
         this.selectedScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        this.selectedScroll.setWheelScrollingEnabled(true);
         this.selectedScroll.getVerticalScrollBar().setUnitIncrement(18);
         this.selectedScroll.getVerticalScrollBar().setBlockIncrement(90);
         this.selectedPanel.add(this.selectedScroll, BorderLayout.CENTER);
 
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING));
+        this.c.add(actions, BorderLayout.SOUTH);
+        this.d = new JButton("→");
+        this.d.setToolTipText("加入字体（也可双击左侧字体）");
+        this.d.addActionListener(this);
+        actions.add(this.d);
+        this.e = new JButton("←");
+        this.e.setToolTipText("移除字体（也可双击已选字体）");
+        this.e.addActionListener(this);
+        actions.add(this.e);
+        this.f = new JButton("确定选择");
+        this.f.setEnabled(false);
+        this.f.addActionListener(this);
+        actions.add(this.f);
+
         this.installWheelForwarder(this.selectedPanel);
         this.installWheelForwarder(this.h);
 
-        /* 先初始化优先级控件列表：z.load() 的后台任务可能很快回调 a(DefaultListModel)。 */
-        this.r = new ArrayList();
         this.l = new z(this);
-        this.g.setFixedCellHeight(108);
         this.g.setCellRenderer(this.l.listFonts.getCellRenderer());
         this.m = new NetFontPanel();
         this.n = new h();
@@ -153,6 +130,53 @@ ChangeListener {
         /* 必须等 this.l 与 this.r 初始化后再安装，监听器会访问它们。 */
         this.installDoubleClicks();
         this.folderFilter = new FontFolderFilter(this.l);
+    }
+
+    private static final class SelectedFontView extends JPanel implements Scrollable {
+        private final JList fonts;
+        private final JPanel weights;
+
+        SelectedFontView(JList fonts, JPanel weights) {
+            super(new BorderLayout());
+            this.fonts = fonts;
+            this.weights = weights;
+            JPanel weightColumn = new JPanel(new BorderLayout());
+            weightColumn.add(weights, BorderLayout.NORTH);
+            add(fonts, BorderLayout.CENTER);
+            add(weightColumn, BorderLayout.EAST);
+        }
+
+        void addWeight(JFormattedTextField field) {
+            JPanel row = new JPanel(new GridBagLayout());
+            row.add(field);
+            row.setPreferredSize(new Dimension(row.getPreferredSize().width + 12, fonts.getFixedCellHeight()));
+            weights.add(row);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+            return 18;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+            return 90;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 
     /**
@@ -258,8 +282,8 @@ ChangeListener {
         }
         this.j.remove(index);
         if (index < this.r.size()) {
-            JFormattedTextField field = (JFormattedTextField)this.r.remove(index);
-            this.q.remove(field);
+            JFormattedTextField field = this.r.remove(index);
+            this.q.remove(field.getParent());
             this.q.revalidate();
             this.q.repaint();
         }
@@ -271,6 +295,8 @@ ChangeListener {
         this.m.clear();
         this.n.clear();
         this.j.clear();
+        this.clearPriorityFields();
+        this.d();
         // Retain the local catalog and sample cache for the next opening.
     }
 
@@ -334,23 +360,52 @@ ChangeListener {
         if (this.k == null) { this.a(model); return; }
         FontsDialogData saved=this.p;
         String[] names=new String[this.j.size()];int[] weights=new int[names.length];
-        for(int i=0;i<names.length;i++){names[i]=((v)this.j.get(i)).f;weights[i]=i<this.r.size()?((Number)((JFormattedTextField)this.r.get(i)).getValue()).intValue():0;}
-        this.p=new FontsDialogData(names,weights);
-        this.a(model);this.p=saved;
+        Map<String, String> drafts = new HashMap<>();
+        for (int index = 0; index < names.length; index++) {
+            names[index] = ((v)this.j.get(index)).f;
+            JFormattedTextField field = this.r.get(index);
+            weights[index] = ((Number)field.getValue()).intValue();
+            drafts.put(names[index], field.getText());
+        }
+        this.p = new FontsDialogData(names, weights);
+        try {
+            this.a(model);
+            for (int index = 0; index < this.j.size(); index++) {
+                String draft = drafts.get(((v)this.j.get(index)).f);
+                this.r.get(index).setText(draft);
+            }
+        } finally {
+            this.p = saved;
+        }
     }
 
     private void clearPriorityFields() {
-        for (Object field : this.r) {
-            this.q.remove((Component)field);
-        }
+        this.q.removeAll();
         this.r.clear();
     }
 
     private void a(int n2) {
-        JFormattedTextField jFormattedTextField = new JFormattedTextField(NumberFormat.getIntegerInstance());
+        NumberFormat format = NumberFormat.getIntegerInstance();
+        JFormattedTextField jFormattedTextField = new JFormattedTextField(new NumberFormatter(format) {
+            @Override
+            public Object stringToValue(String input) throws ParseException {
+                String text = input.trim();
+                ParsePosition position = new ParsePosition(0);
+                Number weight = format.parse(text, position);
+                if (weight == null || position.getIndex() != text.length()
+                        || weight.longValue() < 0 || weight.doubleValue() > Integer.MAX_VALUE) {
+                    throw new ParseException("Invalid font weight", position.getIndex());
+                }
+                return Integer.valueOf(weight.intValue());
+            }
+        });
+        jFormattedTextField.setFocusLostBehavior(JFormattedTextField.PERSIST);
         jFormattedTextField.setValue(n2);
         jFormattedTextField.setEnabled(this.a == null || this.a.getSelectedComponent() instanceof z);
-        this.q.add(jFormattedTextField);
+        jFormattedTextField.setColumns(5);
+        v font = (v)this.j.lastElement();
+        jFormattedTextField.getAccessibleContext().setAccessibleName(font.b + "的权重");
+        this.selectedView.addWeight(jFormattedTextField);
         this.r.add(jFormattedTextField);
         this.q.revalidate();
         this.q.repaint();
@@ -390,8 +445,8 @@ ChangeListener {
             this.e.setEnabled(localFonts);
         }
         this.g.setEnabled(localFonts);
-        for (Object field : this.r) {
-            ((Component)field).setEnabled(localFonts);
+        for (JFormattedTextField field : this.r) {
+            field.setEnabled(localFonts);
         }
         this.d();
     }
@@ -435,23 +490,22 @@ ChangeListener {
                 return;
             }
             /* 原版此处限制最多 5 个；已按 fontcap v2 的语义解除。 */
-            this.p.fontsName = new String[selected.length];
-            n3 = 0;
-            while (n3 < selected.length) {
-                this.p.fontsName[n3] = selected[n3].f;
-                ++n3;
-            }
-            this.p.chance = new int[this.r.size()];
-            n3 = 0;
-            while (n3 < this.r.size()) {
-                JFormattedTextField jFormattedTextField = (JFormattedTextField)this.r.get(n3);
-                this.p.chance[n3] = L.a(jFormattedTextField, false);
-                if (this.p.chance[n3] < 0) {
-                    L.e("\u8bf7\u4e3a\u4f18\u5148\u7ea7\u8f93\u5165\u6b63\u6574\u6570");
+            String[] names = new String[selected.length];
+            int[] weights = new int[selected.length];
+            for (int index = 0; index < selected.length; index++) {
+                names[index] = selected[index].f;
+                JFormattedTextField field = this.r.get(index);
+                try {
+                    weights[index] = (Integer)field.getFormatter().stringToValue(field.getText());
+                } catch (ParseException error) {
+                    this.g.ensureIndexIsVisible(index);
+                    L.e("请输入 0 到 2147483647 之间的整数作为字体权重");
+                    field.requestFocusInWindow();
                     return;
                 }
-                ++n3;
             }
+            this.p.fontsName = names;
+            this.p.chance = weights;
             Storage.flashStore(this.p);
             if (this.o != null) {
                 this.o.onFontSelected(selected, this.p.chance);

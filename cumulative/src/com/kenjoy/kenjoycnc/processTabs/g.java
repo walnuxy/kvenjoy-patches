@@ -50,7 +50,7 @@ public final class g extends Re_h {
     public float displayScale(){return a;}
     public Dimension displayPaperSize(){if(owner==null)return new Dimension(Math.round(h),Math.round(i));Rectangle2D r=rotatedPaper();return new Dimension(Math.round((float)r.getWidth()),Math.round((float)r.getHeight()));}
     public void setDisplayScale(float scale){a=Math.max(.1f,Math.min(8f,scale));super.a(g);refreshEditor();}
-    public void a(float angle){super.a(angle);refreshEditor();}
+    public void a(float angle){super.a(angle);refreshEditor();if(owner!=null)owner.onCanvasAngleChanged();}
     public Dimension getPreferredSize(){if(owner!=null&&owner.geometry()!=null){NoteEditGeometry geo=owner.geometry();Rectangle2D paper=rotatedPaper();float height=(float)paper.getHeight()*geo.layout.pages.size()+geo.pageGap*Math.max(0,geo.layout.pages.size()-1);return new Dimension(Math.max(1,Math.round((float)paper.getWidth()*a)+80),Math.max(1,Math.round(height*a)+60));}return super.getPreferredSize();}
     public void paint(Graphics raw){if(owner==null){super.paint(raw);return;}Graphics2D out=(Graphics2D)raw.create();try{out.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);out.setColor(NotePreviewColors.CANVAS);out.fillRect(0,0,getWidth(),getHeight());if(editing&&editor!=null){editor.paint(out);paintAllForbiddenZones(out);}else paintPreview(out);}finally{out.dispose();}}
     public void scrollToPage(int index){if(owner!=null){Rectangle r=previewPageBounds(index).getBounds();r.height=Math.max(1,Math.min(Math.max(1,getVisibleRect().height),r.height));scrollRectToVisible(r);}}
@@ -92,6 +92,7 @@ public final class g extends Re_h {
             paintForbiddenZones(local,zoneDocument,index);
             local.setColor(NotePreviewColors.GUIDE);for(NoteLayout.Line line:shown.lines){local.draw(new Line2D.Float(line.bounds.x,line.bounds.y+line.bounds.height,line.bounds.x+line.bounds.width,line.bounds.y+line.bounds.height));}
             local.setColor(NotePreviewColors.MUTED);for(NoteLayout.Line line:shown.lines)local.drawString("›",line.bounds.x-18,line.bounds.y+line.bounds.height*.7f);
+            paintWriteProgress(local,index,shown);
             for(NoteLayout.Glyph glyph:shown.glyphs){
                 if(glyph.replacementMarked&&(glyph.pending||!glyph.missing)){local.setColor(NotePreviewColors.REPLACED);local.draw(glyph.cell);}
                 if(glyph.whitespace)continue;
@@ -101,9 +102,68 @@ public final class g extends Re_h {
                 else{local.setColor(NotePreviewColors.INK);local.draw(NoteLayout.path(Collections.singletonList(glyph.path)));}
                 if(hasFocus()&&glyph.id==focused){local.setColor(NotePreviewColors.ACCENT);local.draw(glyph.cell);}
             }
+            paintWriteProgressOverlays(local,index,shown);
             local.dispose();out.setColor(NotePreviewColors.MUTED);out.drawString("第 "+(index+1)+" 页"+(index==owner.getCurrentPageIndex()?" · 当前书写页":""),40,(int)Math.round(bounds.getMaxY()+17));
         }
         if(dragged&&pressed!=null&&current!=null){out.setColor(forbiddenZoneDrawing?new Color(205,55,55):new Color(30,100,200));out.draw(screenBox(pressed,current));}
+    }
+    private void paintWriteProgress(Graphics2D local,int pageIndex,NoteLayout.Page shown){
+        if(owner==null||shown==null)return;
+        NoteWriteProgress.Snapshot progress=owner.writeProgressForPage(pageIndex);
+        long resumeId=owner.resumeGlyphIdForPage(pageIndex);
+        if(progress==null&&resumeId<=0L)return;
+        Stroke oldStroke=local.getStroke();
+        try{
+            for(NoteLayout.Glyph glyph:shown.glyphs){
+                if(glyph.whitespace||glyph.missing||glyph.pending)continue;
+                if(progress!=null&&progress.isConfirmed(glyph.id)){
+                    local.setColor(NotePreviewColors.WRITE_CONFIRMED_FILL);local.fill(glyph.cell);
+                    local.setColor(NotePreviewColors.WRITE_CONFIRMED_BAR);
+                    local.setStroke(new BasicStroke(Math.max(1f,1.5f/Math.max(a,.2f))));
+                    local.draw(new Line2D.Float(glyph.cell.x+1f,glyph.cell.y+glyph.cell.height-1f,glyph.cell.x+glyph.cell.width-1f,glyph.cell.y+glyph.cell.height-1f));
+                }else if(progress!=null&&progress.isInFlight(glyph.id)){
+                    local.setColor(NotePreviewColors.WRITE_INFLIGHT_FILL);local.fill(glyph.cell);
+                }
+                if(glyph.id==resumeId){
+                    local.setColor(NotePreviewColors.WRITE_RESUME_FILL);local.fill(glyph.cell);
+                }
+            }
+        }finally{local.setStroke(oldStroke);}
+    }
+    private void paintWriteProgressOverlays(Graphics2D local,int pageIndex,NoteLayout.Page shown){
+        if(owner==null||shown==null)return;
+        NoteWriteProgress.Snapshot progress=owner.writeProgressForPage(pageIndex);
+        long resumeId=owner.resumeGlyphIdForPage(pageIndex);
+        if(progress==null&&resumeId<=0L)return;
+        Stroke oldStroke=local.getStroke();Font oldFont=local.getFont();
+        try{
+            for(NoteLayout.Glyph glyph:shown.glyphs){
+                if(glyph.whitespace||glyph.missing||glyph.pending)continue;
+                if(progress!=null&&progress.isInFlight(glyph.id)){
+                    local.setColor(NotePreviewColors.WRITE_INFLIGHT_EDGE);
+                    local.setStroke(new BasicStroke(Math.max(1.2f,1.8f/Math.max(a,.2f))));
+                    local.draw(glyph.cell);
+                }
+                if(glyph.id==resumeId){
+                    local.setColor(NotePreviewColors.WRITE_RESUME_EDGE);
+                    local.setStroke(new BasicStroke(Math.max(1.6f,2.4f/Math.max(a,.2f))));
+                    local.draw(glyph.cell);
+                    Font tagFont=oldFont.deriveFont(Font.BOLD,Math.max(7f,Math.min(12f,glyph.cell.height*.36f)));
+                    local.setFont(tagFont);
+                    FontMetrics fm=local.getFontMetrics(tagFont);
+                    String tag="▶续写";
+                    float pad=2f;
+                    float boxW=fm.stringWidth(tag)+pad*2f;
+                    float boxH=fm.getHeight()+pad;
+                    float boxX=Math.max(0f,glyph.cell.x);
+                    float boxY=Math.max(0f,glyph.cell.y-boxH-1f);
+                    local.setColor(NotePreviewColors.WRITE_BADGE_BG);
+                    local.fill(new RoundRectangle2D.Float(boxX,boxY,boxW,boxH,3f,3f));
+                    local.setColor(NotePreviewColors.WRITE_RESUME_EDGE);
+                    local.drawString(tag,boxX+pad,boxY+fm.getAscent()+pad*.5f);
+                }
+            }
+        }finally{local.setStroke(oldStroke);local.setFont(oldFont);}
     }
     private void paintAllForbiddenZones(Graphics2D out){
         NoteDocument document=owner.document();NoteEditGeometry geometry=owner.geometry();
@@ -243,6 +303,17 @@ public final class g extends Re_h {
         row.addActionListener(e->{selection.add(selectedPage.lines.get(glyph.line).ids,false);notifySelection();});menu.add(row);
         JMenuItem font=new JMenuItem("指定所选字字体…");font.setEnabled(!selection.ids().isEmpty());font.addActionListener(e->{if(apply!=null)apply.run();});menu.add(font);
         JMenuItem restore=new JMenuItem("恢复所选字默认字体");restore.setEnabled(!selection.ids().isEmpty());restore.addActionListener(e->{if(reset!=null)reset.run();});menu.add(restore);
+        if(owner!=null){
+            menu.addSeparator();
+            JMenuItem resumeHere=new JMenuItem("从该字开始续写本页");
+            resumeHere.setEnabled(glyph!=null&&!glyph.missing&&!glyph.pending&&!owner.isBusy());
+            resumeHere.addActionListener(e->owner.setResumeGlyphId(glyph.id));
+            menu.add(resumeHere);
+            JMenuItem clearResume=new JMenuItem("清除续写起点（从头书写）");
+            clearResume.setEnabled(owner.hasResumeProgress()&&!owner.isBusy());
+            clearResume.addActionListener(e->owner.clearResumeProgress());
+            menu.add(clearResume);
+        }
         JMenuItem clear=new JMenuItem("清空选择");clear.addActionListener(e->{selection.clear();notifySelection();});menu.add(clear);menu.show(this,ev.getX(),ev.getY());
     }
     public NoteLayout.Page layoutPage() {return page;}

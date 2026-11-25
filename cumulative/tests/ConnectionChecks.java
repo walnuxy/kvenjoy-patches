@@ -69,8 +69,16 @@ public final class ConnectionChecks {
         SwingUtilities.invokeAndWait(()->{app[0].y.j.setSelectedItem("COM4");app[0].y.e.setSelectedItem("9600");app[0].y.c.doClick(0);});idle(s);
         check("manual connection honors selected port and baud over memory",transport.last.equals("COM4")&&transport.lastBaud==9600&&transport.open);
         check("manual connection never enumerates or asks to choose another device",discoveries.get()==discoveryBefore);
-        poll.invoke(s);check("manual connection polling preserves selected connection without enumeration",transport.open&&discoveries.get()==discoveryBefore);
-        call(s,"disconnect",true);Thread.sleep(150);int opensBeforeEmpty=transport.opens;
+        ports.set(Arrays.asList(ch,other,new DevicePort("COM4","USB manually selected","USB\\MANUAL")));
+        poll.invoke(s);check("manual connection polling verifies the selected COM number",transport.open&&discoveries.get()==discoveryBefore+1);
+        Object ready=ConnectionService.verifyWriteConnection();
+        check("write preflight returns the current verified connection",ConnectionService.isCurrentWriteConnection(ready));
+        ports.set(Arrays.asList(ch,other));
+        check("preflight rejects unplugged manual port even if the handle still looks open",ConnectionService.verifyWriteConnection()==null);
+        check("old verified connection cannot submit after disconnect",!ConnectionService.isCurrentWriteConnection(ready));
+        ((ScheduledExecutorService)field(s,"worker")).submit(()->{}).get(3,TimeUnit.SECONDS);
+        check("missing manual port clears the stale handle and suppresses automatic replay",!transport.open&&!g.a().i().i()&&(Boolean)field(s,"suppressed"));
+        int opensBeforeEmpty=transport.opens;discoveryBefore=discoveries.get();
         SwingUtilities.invokeAndWait(()->{app[0].y.j.setSelectedItem("");app[0].y.c.doClick(0);});idle(s);
         check("empty manual port opens nothing",transport.opens==opensBeforeEmpty&&discoveries.get()==discoveryBefore);
         field(s,"closed",true);((ScheduledExecutorService)field(s,"worker")).shutdownNow();SwingUtilities.invokeAndWait(()->app[0].frame.dispose());transport.c();

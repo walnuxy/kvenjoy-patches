@@ -30,6 +30,20 @@ public final class ConnectionService {
     private volatile boolean busy,canceled,suppressed,closed,disconnecting;private volatile DevicePort connected;
     private String fingerprint="";private volatile long deadline;
     public static boolean probing(){return probeMode;}
+    public static boolean disconnecting(){ConnectionService s=instance;return s!=null&&s.disconnecting;}
+    public static Object verifyWriteConnection()throws Exception{
+        ConnectionService service=instance;
+        if(service==null)return null;
+        DevicePort choice=service.connected;
+        if(!isCurrentWriteConnection(choice))return null;
+        if(service.portPresent(choice)&&isCurrentWriteConnection(choice))return choice;
+        service.disconnectIfCurrent(choice);
+        return null;
+    }
+    public static boolean isCurrentWriteConnection(Object choice){
+        ConnectionService service=instance;
+        return service!=null&&choice!=null&&service.connected==choice&&!service.closed&&!service.disconnecting&&g.a().g().b();
+    }
     public static void transportFailed(String message){probeError=message;ConnectionService s=instance;if(s!=null&&!probeMode&&!s.closed)s.disconnect(false);}
     public static String firmwareLine(String line){
         if(probeFirmware.equalsIgnoreCase("Grbl")){
@@ -60,10 +74,10 @@ public final class ConnectionService {
         frame.addWindowListener(new WindowAdapter(){public void windowClosed(WindowEvent e){closed=true;canceled=true;worker.shutdownNow();}});
         worker.scheduleWithFixedDelay(()->poll(),2,2,TimeUnit.SECONDS);
     }
-    private void show(String message){SwingUtilities.invokeLater(()->{status.setText(message);status.setToolTipText(message);search.setEnabled(!busy&&!g.a().g().b());cancel.setEnabled(busy);connect.setEnabled(!busy);});}
-    private synchronized void request(boolean manual){if(closed||busy)return;if(g.a().g().b()){show("设备已连接");return;}if(!manual&&(!Settings.getInst().autoConnect||suppressed))return;busy=true;canceled=false;deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(20);show("正在搜索 USB 串口…");worker.execute(()->discover(manual));}
+    private void show(String message){SwingUtilities.invokeLater(()->{status.setText(message);status.setToolTipText(message);search.setEnabled(!busy&&!disconnecting&&!g.a().g().b());cancel.setEnabled(busy);connect.setEnabled(!busy&&!disconnecting);});}
+    private synchronized void request(boolean manual){if(closed||busy||disconnecting)return;if(g.a().g().b()){show("设备已连接");return;}if(!manual&&(!Settings.getInst().autoConnect||suppressed))return;busy=true;canceled=false;deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(20);show("正在搜索 USB 串口…");worker.execute(()->discover(manual));}
     private synchronized void requestSelected(){
-        if(closed||busy)return;
+        if(closed||busy||disconnecting)return;
         if(discovery==null&&Boolean.getBoolean("kvenjoy.connection.disabled")){show("当前测试环境已禁用设备连接");return;}
         Object selected=portModel.getSelectedItem();String port=selected==null?"":selected.toString().trim();
         if(port.isEmpty()){show("请先选择串口；也可使用“搜索并连接”");return;}
@@ -73,8 +87,14 @@ public final class ConnectionService {
         DevicePort choice=new DevicePort(port,port,"MANUAL\\"+port);show("正在连接所选端口："+port+" · "+baud);
         worker.execute(()->discover(true,choice,baud));
     }
-    private void poll(){if(closed||busy)return;try{
-        if(connected!=null){if(connected.id.startsWith("MANUAL\\")){if(!g.a().g().b())disconnect(false);return;}List<DevicePort> ports=ports();boolean present=false;for(DevicePort p:ports)if(p.id.equals(connected.id)&&p.port.equals(connected.port))present=true;if(!present||!g.a().g().b()){disconnect(false);}return;}
+    private boolean portPresent(DevicePort choice)throws Exception{
+        boolean manual=choice.id.startsWith("MANUAL\\");
+        for(DevicePort port:ports())if(port.port.equalsIgnoreCase(choice.port)&&(manual||port.id.equals(choice.id)))return true;
+        return false;
+    }
+    private void poll(){if(closed||busy||disconnecting)return;try{
+        DevicePort choice=connected;
+        if(choice!=null){if(!g.a().g().b()||!portPresent(choice))disconnectIfCurrent(choice);return;}
         if(!Settings.getInst().autoConnect||suppressed)return;
         List<DevicePort> ports=ports();String key=signature(ports);if(!key.equals(fingerprint)){fingerprint=key;request(false);}
     }catch(Exception e){show("搜索失败："+e.getMessage());}}
@@ -112,11 +132,17 @@ public final class ConnectionService {
     private synchronized void disconnect(boolean manual){
         if(closed||disconnecting)return;
         disconnecting=true;suppressed=true;canceled=true;connected=null;
+        show("正在断开连接…");
         worker.execute(()->{try{g.a().g().c();}finally{
-            Object sender=g.a().i();synchronized(sender){g.a().i().c();}
-            disconnecting=false;show(manual?"已手动断开；点击搜索可重新连接":"设备已断开；任务已中断，点击搜索重新连接");
+            try{
+                Object sender=g.a().i();synchronized(sender){
+                    com.kenjoy.kenjoycnc.note.NoteWriteProgress.captureSenderProgress(manual?"连接已手动断开":"USB 连接已断开");
+                    g.a().i().c();
+                }
+            }finally{disconnecting=false;show(manual?"已手动断开；点击搜索可重新连接":"设备已断开；任务已中断，点击搜索重新连接");}
         }});
     }
+    private synchronized void disconnectIfCurrent(DevicePort choice){if(connected==choice)disconnect(false);}
     private List<DevicePort> ports()throws Exception{return discovery==null?enumerate():discovery.call();}
     private List<DevicePort> enumerate()throws Exception{
         if(Boolean.getBoolean("kvenjoy.connection.disabled"))return Collections.emptyList();

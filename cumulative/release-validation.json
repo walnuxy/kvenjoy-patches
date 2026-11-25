@@ -1,59 +1,31 @@
 {
-  "version": "0.026",
-  "installerSha256": "b42c92b2a3d01e90097f9356aaf75825a451f5befa97319124431bd3ac2c156b",
-  "historicalSnapshots": 274,
-  "reviewedInstalledBatch": "20261115-000757-134493",
+  "version": "0.027",
+  "installerSha256": "26bc8fbcba11e5d905856f9042c5e53e66deda1e537237e038305f7d49973be2",
+  "historicalSnapshots": 280,
+  "reviewedInstalledBatch": "20261125-124531-553313",
+  "vendorPayloadMatches": true,
+  "vendorStartupPassed": true,
+  "standalonePayloadUnchangedFrom": "0.026",
   "runtimes": {
     "java8": {
-      "installerMatrix": "274 historical cases; 1935 assertions; runtime=1.8.0_152",
+      "historicalMatrix": "280 historical cases; 1977 assertions; runtime=1.8.0_152",
+      "productionChecks": 259,
+      "connectionChecks": 31,
+      "noteRecoveryChecks": 29,
+      "fontUiChecks": 100,
       "recoveryChecks": 8,
-      "exactUpgradeRollback": true,
-      "applicationChecks": {
-        "production-checks.tsv": 254,
-        "checks.tsv": 264,
-        "all-windows-checks.tsv": 454,
-        "responsive-checks.tsv": 325,
-        "inline-editor-checks.tsv": 35,
-        "inline-workflow-checks.tsv": 19,
-        "forbidden-zone-ui-checks.tsv": 20,
-        "forbidden-manager-checks.tsv": 36,
-        "sidebar-collapse-checks.tsv": 42,
-        "native-file-entry-checks.tsv": 43
-      },
-      "forbiddenDialogAssertions": 39,
-      "fontUiAssertions": 89
+      "exactUpgradeRollback": true
     },
     "jdk21": {
-      "installerMatrix": "274 historical cases; 1935 assertions; runtime=21.0.13.1",
+      "historicalMatrix": "280 historical cases; 1977 assertions; runtime=21.0.12.1",
+      "productionChecks": 259,
+      "connectionChecks": 31,
+      "noteRecoveryChecks": 29,
+      "fontUiChecks": 100,
       "recoveryChecks": 8,
-      "exactUpgradeRollback": true,
-      "applicationChecks": {
-        "production-checks.tsv": 254,
-        "checks.tsv": 264,
-        "all-windows-checks.tsv": 454,
-        "responsive-checks.tsv": 325,
-        "inline-editor-checks.tsv": 35,
-        "inline-workflow-checks.tsv": 19,
-        "forbidden-zone-ui-checks.tsv": 20,
-        "forbidden-manager-checks.tsv": 36,
-        "sidebar-collapse-checks.tsv": 42,
-        "native-file-entry-checks.tsv": 43
-      },
-      "forbiddenDialogAssertions": 39,
-      "fontUiAssertions": 89
+      "exactUpgradeRollback": true
     }
   },
-  "cumulativeEqualsReviewedPayload": true,
-  "vendorStartup": true,
   "launcherChecks": 19,
-  "standalone": {
-    "historicalStartupPassed": true,
-    "historicalStartupChecks": {
-      "production-checks.tsv": 6,
-      "standalone-checks.tsv": 13
-    },
-    "sameUpdatedArchiveEntries": 967,
-    "currentHiddenDesktopStartup": "Windows DLL initialization failed (0xC0000142)"
-  },
   "hardwareWritingValidated": false
 }
